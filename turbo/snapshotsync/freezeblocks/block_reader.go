@@ -20,7 +20,7 @@ import (
 	"github.com/ledgerwatch/erigon-lib/common/length"
 	"github.com/ledgerwatch/erigon-lib/downloader/snaptype"
 	"github.com/ledgerwatch/erigon-lib/gointerfaces"
-	"github.com/ledgerwatch/erigon-lib/gointerfaces/remote"
+	remote "github.com/ledgerwatch/erigon-lib/gointerfaces/remoteproto"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon-lib/recsplit"
 	"github.com/ledgerwatch/erigon/core/rawdb"
@@ -365,33 +365,17 @@ func (r *BlockReader) HeadersRange(ctx context.Context, walker func(header *type
 }
 
 func (r *BlockReader) HeaderByNumber(ctx context.Context, tx kv.Getter, blockHeight uint64) (h *types.Header, err error) {
-	//TODO: investigate why code blolow causing getting error `Could not set forkchoice                 app=caplin stage=ForkChoice err="execution Client RPC failed to retrieve ForkChoiceUpdate response, err: unknown ancestor"`
-	//maxBlockNumInFiles := r.sn.BlocksAvailable()
-	//if maxBlockNumInFiles == 0 || blockHeight > maxBlockNumInFiles {
-	//	if tx == nil {
-	//		return nil, nil
-	//	}
-	//	blockHash, err := rawdb.ReadCanonicalHash(tx, blockHeight)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	if blockHash == (common.Hash{}) {
-	//		return nil, nil
-	//	}
-	//	h = rawdb.ReadHeader(tx, blockHash, blockHeight)
-	//	return h, nil
-	//}
 	if tx != nil {
 		blockHash, err := rawdb.ReadCanonicalHash(tx, blockHeight)
 		if err != nil {
 			return nil, err
 		}
-		if blockHash == (common.Hash{}) {
-			return nil, nil
-		}
-		h = rawdb.ReadHeader(tx, blockHash, blockHeight)
-		if h != nil {
-			return h, nil
+		// if no canonical marker - still can try read from files
+		if blockHash != emptyHash {
+			h = rawdb.ReadHeader(tx, blockHash, blockHeight)
+			if h != nil {
+				return h, nil
+			}
 		}
 	}
 
@@ -525,7 +509,6 @@ func (r *BlockReader) BodyWithTransactions(ctx context.Context, tx kv.Getter, ha
 			log.Info(dbgPrefix + "found in db=false")
 		}
 	}
-
 	view := r.sn.View()
 	defer view.Close()
 
@@ -719,7 +702,7 @@ func (r *BlockReader) blockWithSenders(ctx context.Context, tx kv.Getter, hash c
 		return
 	}
 	if txsAmount == 0 {
-		block = types.NewBlockFromStorage(hash, h, nil, b.Uncles, b.Withdrawals)
+		block = types.NewBlockFromStorage(hash, h, nil, b.Uncles, b.Withdrawals, b.Requests)
 		if len(senders) != block.Transactions().Len() {
 			if dbgLogs {
 				log.Info(dbgPrefix + fmt.Sprintf("found block with %d transactions, but %d senders", block.Transactions().Len(), len(senders)))
@@ -742,7 +725,7 @@ func (r *BlockReader) blockWithSenders(ctx context.Context, tx kv.Getter, hash c
 	if err != nil {
 		return nil, nil, err
 	}
-	block = types.NewBlockFromStorage(hash, h, txs, b.Uncles, b.Withdrawals)
+	block = types.NewBlockFromStorage(hash, h, txs, b.Uncles, b.Withdrawals, b.Requests)
 	if len(senders) != block.Transactions().Len() {
 		if dbgLogs {
 			log.Info(dbgPrefix + fmt.Sprintf("found block with %d transactions, but %d senders", block.Transactions().Len(), len(senders)))
@@ -827,10 +810,10 @@ func (r *BlockReader) bodyFromSnapshot(blockHeight uint64, sn *Segment, buf []by
 	if b == nil {
 		return nil, 0, 0, buf, nil
 	}
-
 	body := new(types.Body)
 	body.Uncles = b.Uncles
 	body.Withdrawals = b.Withdrawals
+	body.Requests = b.Requests
 
 	var txsAmount uint32
 	if b.TxAmount >= 2 {
@@ -1032,6 +1015,7 @@ func (r *BlockReader) TxnLookup(_ context.Context, tx kv.Getter, txnHash common.
 	if err != nil {
 		return 0, false, err
 	}
+
 	if n != nil {
 		return *n, true, nil
 	}
@@ -1063,10 +1047,9 @@ func (r *BlockReader) FirstTxnNumNotInSnapshots() uint64 {
 func (r *BlockReader) IterateFrozenBodies(f func(blockNum, baseTxNum, txAmount uint64) error) error {
 	view := r.sn.View()
 	defer view.Close()
-
 	for _, sn := range view.Bodies() {
 		sn := sn
-		defer sn.EnableMadvNormal().DisableReadAhead()
+		defer sn.EnableReadAhead().DisableReadAhead()
 
 		var buf []byte
 		g := sn.MakeGetter()
@@ -1119,9 +1102,6 @@ func (r *BlockReader) BlockByNumber(ctx context.Context, db kv.Tx, number uint64
 	hash, err := rawdb.ReadCanonicalHash(db, number)
 	if err != nil {
 		return nil, fmt.Errorf("failed ReadCanonicalHash: %w", err)
-	}
-	if hash == (common.Hash{}) {
-		return nil, nil
 	}
 	block, _, err := r.BlockWithSenders(ctx, db, hash, number)
 	return block, err
@@ -1263,6 +1243,9 @@ func (r *BlockReader) BorStartEventID(ctx context.Context, tx kv.Tx, hash common
 		if err != nil {
 			return 0, err
 		}
+		if len(v) == 0 {
+			return 0, fmt.Errorf("BorStartEventID(%d) not found", blockHeight)
+		}
 		startEventId := binary.BigEndian.Uint64(v)
 		return startEventId, nil
 	}
@@ -1301,10 +1284,7 @@ func (r *BlockReader) BorStartEventID(ctx context.Context, tx kv.Tx, hash common
 
 func (r *BlockReader) EventsByBlock(ctx context.Context, tx kv.Tx, hash common.Hash, blockHeight uint64) ([]rlp.RawValue, error) {
 	maxBlockNumInFiles := r.FrozenBorBlocks()
-	if maxBlockNumInFiles == 0 || blockHeight > maxBlockNumInFiles {
-		if tx == nil {
-			return nil, nil
-		}
+	if tx != nil && (maxBlockNumInFiles == 0 || blockHeight > maxBlockNumInFiles) {
 		c, err := tx.Cursor(kv.BorEventNums)
 		if err != nil {
 			return nil, err

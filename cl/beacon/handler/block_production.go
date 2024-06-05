@@ -18,7 +18,7 @@ import (
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/hexutil"
 	"github.com/ledgerwatch/erigon-lib/common/length"
-	"github.com/ledgerwatch/erigon-lib/gointerfaces/sentinel"
+	sentinel "github.com/ledgerwatch/erigon-lib/gointerfaces/sentinelproto"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/cl/abstract"
 	"github.com/ledgerwatch/erigon/cl/beacon/beaconhttp"
@@ -715,7 +715,14 @@ func (a *ApiHandler) storeBlockAndBlobs(
 		return err
 	}
 
-	return a.forkchoiceStore.OnBlock(ctx, block, true, false, false)
+	if err := a.forkchoiceStore.OnBlock(ctx, block, true, false, false); err != nil {
+		return err
+	}
+	finalizedBlockRoot := a.forkchoiceStore.FinalizedCheckpoint().BlockRoot()
+	if _, err := a.engine.ForkChoiceUpdate(ctx, a.forkchoiceStore.GetEth1Hash(finalizedBlockRoot), a.forkchoiceStore.GetEth1Hash(blockRoot), nil); err != nil {
+		return err
+	}
+	return nil
 }
 
 type attestationCandidate struct {

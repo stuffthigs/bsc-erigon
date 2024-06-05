@@ -18,6 +18,7 @@
 package ethconfig
 
 import (
+	"github.com/ledgerwatch/erigon-lib/chain/networkname"
 	"math/big"
 	"os"
 	"os/user"
@@ -29,7 +30,6 @@ import (
 	"github.com/c2h5oh/datasize"
 
 	"github.com/ledgerwatch/erigon-lib/chain"
-	"github.com/ledgerwatch/erigon-lib/chain/networkname"
 	"github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/datadir"
 	"github.com/ledgerwatch/erigon-lib/downloader/downloadercfg"
@@ -72,12 +72,13 @@ var LightClientGPO = gaspricecfg.Config{
 // Defaults contains default settings for use on the Ethereum main net.
 var Defaults = Config{
 	Sync: Sync{
-		UseSnapshots:               false,
+		UseSnapshots:               true,
 		ExecWorkerCount:            estimate.ReconstituteState.WorkersHalf(), //only half of CPU, other half will spend for snapshots build/merge/prune
 		ReconWorkerCount:           estimate.ReconstituteState.Workers(),
 		BodyCacheLimit:             256 * 1024 * 1024,
 		BodyDownloadTimeoutSeconds: 2,
-		PruneLimit:                 100,
+		//LoopBlockLimit:             100_000,
+		PruneLimit: 100,
 	},
 	Ethash: ethashcfg.Config{
 		CachesInMem:      2,
@@ -167,7 +168,7 @@ func NewSnapCfg(enabled, keepBlocks, produce bool) BlocksFreezing {
 
 // Config contains configuration options for ETH protocol.
 type Config struct {
-	Sync Sync
+	Sync
 
 	// The genesis block, which is inserted if the database is empty.
 	// If nil, the Ethereum main net block is used.
@@ -227,9 +228,6 @@ type Config struct {
 
 	StateStream bool
 
-	//  New DB and Snapshots format of history allows: parallel blocks execution, get state as of given transaction without executing whole block.",
-	HistoryV3 bool
-
 	// URL to connect to Heimdall node
 	HeimdallURL string
 	// No heimdall service
@@ -239,21 +237,20 @@ type Config struct {
 	// Heimdall waypoint recording active
 	WithHeimdallWaypointRecording bool
 	// Use polygon checkpoint sync in preference to POW downloader
-	PolygonSync bool
+	PolygonSync      bool
+	PolygonSyncStage bool
 
 	// Ethstats service
 	Ethstats string
 	// Consensus layer
-	InternalCL                  bool
-	LightClientDiscoveryAddr    string
-	LightClientDiscoveryPort    uint64
-	LightClientDiscoveryTCPPort uint64
-	SentinelAddr                string
-	SentinelPort                uint64
+	InternalCL             bool
+	CaplinDiscoveryAddr    string
+	CaplinDiscoveryPort    uint64
+	CaplinDiscoveryTCPPort uint64
+	SentinelAddr           string
+	SentinelPort           uint64
 
 	OverridePragueTime *big.Int `toml:",omitempty"`
-
-	ForcePartialCommit bool
 
 	// Embedded Silkworm support
 	SilkwormExecution            bool
@@ -277,6 +274,7 @@ type Config struct {
 
 type Sync struct {
 	UseSnapshots bool
+
 	// LoopThrottle sets a minimum time between staged loop iterations
 	LoopThrottle     time.Duration
 	ExecWorkerCount  int
@@ -306,7 +304,4 @@ var ChainsWithSnapshots = map[string]struct{}{
 	networkname.ChiadoChainName:     {},
 }
 
-func UseSnapshotsByChainName(chain string) bool {
-	_, ok := ChainsWithSnapshots[chain]
-	return ok
-}
+func UseSnapshotsByChainName(chain string) bool { return true }

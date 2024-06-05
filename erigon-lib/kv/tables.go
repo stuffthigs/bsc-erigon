@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ledgerwatch/erigon-lib/gointerfaces/types"
+	types "github.com/ledgerwatch/erigon-lib/gointerfaces/typesproto"
 )
 
 // DBSchemaVersion versions list
@@ -126,12 +126,12 @@ AccountsHistory and StorageHistory - indices designed to serve next 2 type of re
 2. get last shard of A - to append there new block numbers
 
 Task 1. is part of "get historical state" operation (see `core/state:GetAsOf`):
-If `db.Seek(A+bigEndian(X))` returns non-last shard -
+If `db.seekInFiles(A+bigEndian(X))` returns non-last shard -
 
 	then get block number from shard value Y := RoaringBitmap(shard_value).GetGte(X)
 	and with Y go to ChangeSets: db.Get(ChangeSets, Y+A)
 
-If `db.Seek(A+bigEndian(X))` returns last shard -
+If `db.seekInFiles(A+bigEndian(X))` returns last shard -
 
 	then we go to PlainState: db.Get(PlainState, A)
 
@@ -143,7 +143,7 @@ Format:
   - if shard is last - then key has suffix 8 bytes = 0xFF
 
 It allows:
-  - server task 1. by 1 db operation db.Seek(A+bigEndian(X))
+  - server task 1. by 1 db operation db.seekInFiles(A+bigEndian(X))
   - server task 2. by 1 db operation db.Get(A+0xFF)
 
 see also: docs/programmers_guide/db_walkthrough.MD#table-change-sets
@@ -383,6 +383,9 @@ const (
 	BorCheckpoints    = "BorCheckpoints"            // checkpoint_id -> checkpoint (in JSON encoding)
 	BorCheckpointEnds = "BorCheckpointEnds"         // start block_num -> checkpoint_id (first block of checkpoint)
 
+	// Polygon Bridge
+	PolygonBridgeEvents = "PolygonBridgeEvents" // bridge event.ID -> event
+
 	// Downloader
 	BittorrentCompletion = "BittorrentCompletion"
 	BittorrentInfo       = "BittorrentInfo"
@@ -414,6 +417,12 @@ const (
 	TblCommitmentHistoryVals = "CommitmentHistoryVals"
 	TblCommitmentIdx         = "CommitmentIdx"
 
+	//TblGasUsedKeys        = "GasUsedKeys"
+	//TblGasUsedVals        = "GasUsedVals"
+	//TblGasUsedHistoryKeys = "GasUsedHistoryKeys"
+	//TblGasUsedHistoryVals = "GasUsedHistoryVals"
+	//TblGasUsedIdx         = "GasUsedIdx"
+
 	TblLogAddressKeys = "LogAddressKeys"
 	TblLogAddressIdx  = "LogAddressIdx"
 	TblLogTopicsKeys  = "LogTopicsKeys"
@@ -423,6 +432,12 @@ const (
 	TblTracesFromIdx  = "TracesFromIdx"
 	TblTracesToKeys   = "TracesToKeys"
 	TblTracesToIdx    = "TracesToIdx"
+
+	// Prune progress of execution: tableName -> [8bytes of invStep]latest pruned key
+	// Could use table constants `Tbl{Account,Storage,Code,Commitment}Keys` for domains
+	// corresponding history tables `Tbl{Account,Storage,Code,Commitment}HistoryKeys` for history
+	// and `Tbl{Account,Storage,Code,Commitment}Idx` for inverted indices
+	TblPruningProgress = "PruningProgress"
 
 	Snapshots = "Snapshots" // name -> hash
 
@@ -513,6 +528,10 @@ const (
 	Proposers        = "BlockProposers"   // epoch => proposers indicies
 
 	StatesProcessingProgress = "StatesProcessingProgress"
+
+	//Diagnostics tables
+	DiagSystemInfo = "DiagSystemInfo"
+	DiagSyncStages = "DiagSyncStages"
 )
 
 // Keys
@@ -531,8 +550,11 @@ var (
 	PruneTxIndexType    = []byte("pruneTxIndexType")
 	PruneCallTraces     = []byte("pruneCallTraces")
 	PruneCallTracesType = []byte("pruneCallTracesType")
+	PruneBlocks         = []byte("pruneBlocks")
+	PruneBlocksType     = []byte("pruneBlocksType")
 
 	DBSchemaVersionKey = []byte("dbVersion")
+	GenesisKey         = []byte("genesis")
 
 	BittorrentPeerID            = "peerID"
 	CurrentHeadersSnapshotHash  = []byte("CurrentHeadersSnapshotHash")
@@ -545,6 +567,7 @@ var (
 	LightClientStore            = []byte("LightClientStore")
 	LightClientFinalityUpdate   = []byte("LightClientFinalityUpdate")
 	LightClientOptimisticUpdate = []byte("LightClientOptimisticUpdate")
+	LastNewBlockSeen            = []byte("LastNewBlockSeen") // last seen block hash
 
 	StatesProcessingKey = []byte("StatesProcessing")
 )
@@ -618,6 +641,7 @@ var ChaindataTables = []string{
 	BorMilestoneEnds,
 	BorCheckpoints,
 	BorCheckpointEnds,
+	PolygonBridgeEvents,
 	TblAccountKeys,
 	TblAccountVals,
 	TblAccountHistoryKeys,
@@ -642,6 +666,12 @@ var ChaindataTables = []string{
 	TblCommitmentHistoryVals,
 	TblCommitmentIdx,
 
+	//TblGasUsedKeys,
+	//TblGasUsedVals,
+	//TblGasUsedHistoryKeys,
+	//TblGasUsedHistoryVals,
+	//TblGasUsedIdx,
+
 	TblLogAddressKeys,
 	TblLogAddressIdx,
 	TblLogTopicsKeys,
@@ -651,6 +681,8 @@ var ChaindataTables = []string{
 	TblTracesFromIdx,
 	TblTracesToKeys,
 	TblTracesToIdx,
+
+	TblPruningProgress,
 
 	Snapshots,
 	MaxTxNum,
@@ -743,6 +775,12 @@ var ChaindataDeprecatedTables = []string{
 	TransitionBlockKey,
 }
 
+// Diagnostics tables
+var DiagnosticsTables = []string{
+	DiagSystemInfo,
+	DiagSyncStages,
+}
+
 type CmpFunc func(k1, k2, v1, v2 []byte) int
 
 type TableCfg map[string]TableCfgItem
@@ -807,39 +845,48 @@ var ChaindataTablesCfg = TableCfg{
 	TblCodeIdx:               {Flags: DupSort},
 	TblCommitmentKeys:        {Flags: DupSort},
 	TblCommitmentHistoryKeys: {Flags: DupSort},
+	TblCommitmentHistoryVals: {Flags: DupSort},
 	TblCommitmentIdx:         {Flags: DupSort},
-	TblLogAddressKeys:        {Flags: DupSort},
-	TblLogAddressIdx:         {Flags: DupSort},
-	TblLogTopicsKeys:         {Flags: DupSort},
-	TblLogTopicsIdx:          {Flags: DupSort},
-	TblTracesFromKeys:        {Flags: DupSort},
-	TblTracesFromIdx:         {Flags: DupSort},
-	TblTracesToKeys:          {Flags: DupSort},
-	TblTracesToIdx:           {Flags: DupSort},
-	RAccountKeys:             {Flags: DupSort},
-	RAccountIdx:              {Flags: DupSort},
-	RStorageKeys:             {Flags: DupSort},
-	RStorageIdx:              {Flags: DupSort},
-	RCodeKeys:                {Flags: DupSort},
-	RCodeIdx:                 {Flags: DupSort},
+	//TblGasUsedKeys:           {Flags: DupSort},
+	//TblGasUsedHistoryKeys:    {Flags: DupSort},
+	//TblGasUsedHistoryVals:    {Flags: DupSort},
+	//TblGasUsedIdx:            {Flags: DupSort},
+	TblLogAddressKeys:  {Flags: DupSort},
+	TblLogAddressIdx:   {Flags: DupSort},
+	TblLogTopicsKeys:   {Flags: DupSort},
+	TblLogTopicsIdx:    {Flags: DupSort},
+	TblTracesFromKeys:  {Flags: DupSort},
+	TblTracesFromIdx:   {Flags: DupSort},
+	TblTracesToKeys:    {Flags: DupSort},
+	TblTracesToIdx:     {Flags: DupSort},
+	TblPruningProgress: {Flags: DupSort},
+
+	RAccountKeys: {Flags: DupSort},
+	RAccountIdx:  {Flags: DupSort},
+	RStorageKeys: {Flags: DupSort},
+	RStorageIdx:  {Flags: DupSort},
+	RCodeKeys:    {Flags: DupSort},
+	RCodeIdx:     {Flags: DupSort},
 }
 
 var BorTablesCfg = TableCfg{
-	BorReceipts:       {Flags: DupSort},
-	BorFinality:       {Flags: DupSort},
-	BorTxLookup:       {Flags: DupSort},
-	BorEvents:         {Flags: DupSort},
-	BorEventNums:      {Flags: DupSort},
-	BorSpans:          {Flags: DupSort},
-	BorCheckpoints:    {Flags: DupSort},
-	BorCheckpointEnds: {Flags: DupSort},
-	BorMilestones:     {Flags: DupSort},
-	BorMilestoneEnds:  {Flags: DupSort},
+	BorReceipts:         {Flags: DupSort},
+	BorFinality:         {Flags: DupSort},
+	BorTxLookup:         {Flags: DupSort},
+	BorEvents:           {Flags: DupSort},
+	BorEventNums:        {Flags: DupSort},
+	BorSpans:            {Flags: DupSort},
+	BorCheckpoints:      {Flags: DupSort},
+	BorCheckpointEnds:   {Flags: DupSort},
+	BorMilestones:       {Flags: DupSort},
+	BorMilestoneEnds:    {Flags: DupSort},
+	PolygonBridgeEvents: {Flags: DupSort},
 }
 
 var TxpoolTablesCfg = TableCfg{}
 var SentryTablesCfg = TableCfg{}
 var DownloaderTablesCfg = TableCfg{}
+var DiagnosticsTablesCfg = TableCfg{}
 var ReconTablesCfg = TableCfg{
 	PlainStateD:    {Flags: DupSort},
 	CodeD:          {Flags: DupSort},
@@ -856,6 +903,8 @@ func TablesCfgByLabel(label Label) TableCfg {
 		return SentryTablesCfg
 	case DownloaderDB:
 		return DownloaderTablesCfg
+	case DiagnosticsDB:
+		return DiagnosticsTablesCfg
 	default:
 		panic(fmt.Sprintf("unexpected label: %s", label))
 	}
@@ -917,29 +966,99 @@ func reinit() {
 			ReconTablesCfg[name] = TableCfgItem{}
 		}
 	}
+
+	for _, name := range DiagnosticsTables {
+		_, ok := DiagnosticsTablesCfg[name]
+		if !ok {
+			DiagnosticsTablesCfg[name] = TableCfgItem{}
+		}
+	}
 }
 
 // Temporal
 
 const (
-	AccountsDomain Domain = "AccountsDomain"
-	StorageDomain  Domain = "StorageDomain"
-	CodeDomain     Domain = "CodeDomain"
+	AccountsDomain   Domain = 0
+	StorageDomain    Domain = 1
+	CodeDomain       Domain = 2
+	CommitmentDomain Domain = 3
+	//GasUsedDomain    Domain = 4
+
+	DomainLen Domain = 4
 )
 
 const (
-	AccountsHistory History = "AccountsHistory"
-	StorageHistory  History = "StorageHistory"
-	CodeHistory     History = "CodeHistory"
+	AccountsHistory   History = "AccountsHistory"
+	StorageHistory    History = "StorageHistory"
+	CodeHistory       History = "CodeHistory"
+	CommitmentHistory History = "CommitmentHistory"
+	//GasUsedHistory    History = "GasUsedHistory"
 )
 
 const (
-	AccountsHistoryIdx InvertedIdx = "AccountsHistoryIdx"
-	StorageHistoryIdx  InvertedIdx = "StorageHistoryIdx"
-	CodeHistoryIdx     InvertedIdx = "CodeHistoryIdx"
+	AccountsHistoryIdx   InvertedIdx = "AccountsHistoryIdx"
+	StorageHistoryIdx    InvertedIdx = "StorageHistoryIdx"
+	CodeHistoryIdx       InvertedIdx = "CodeHistoryIdx"
+	CommitmentHistoryIdx InvertedIdx = "CommitmentHistoryIdx"
+	//GasUsedHistoryIdx    InvertedIdx = "GasUsedHistoryIdx"
 
 	LogTopicIdx   InvertedIdx = "LogTopicIdx"
 	LogAddrIdx    InvertedIdx = "LogAddrIdx"
 	TracesFromIdx InvertedIdx = "TracesFromIdx"
 	TracesToIdx   InvertedIdx = "TracesToIdx"
+
+	LogAddrIdxPos    InvertedIdxPos = 0
+	LogTopicIdxPos   InvertedIdxPos = 1
+	TracesFromIdxPos InvertedIdxPos = 2
+	TracesToIdxPos   InvertedIdxPos = 3
+	StandaloneIdxLen uint16         = 4
 )
+
+func (iip InvertedIdxPos) String() string {
+	switch iip {
+	case LogAddrIdxPos:
+		return "logAddr"
+	case LogTopicIdxPos:
+		return "logTopic"
+	case TracesFromIdxPos:
+		return "traceFrom"
+	case TracesToIdxPos:
+		return "traceTo"
+	default:
+		return "unknown inverted index"
+	}
+}
+
+func (d Domain) String() string {
+	switch d {
+	case AccountsDomain:
+		return "accounts"
+	case StorageDomain:
+		return "storage"
+	case CodeDomain:
+		return "code"
+	case CommitmentDomain:
+		return "commitment"
+	//case GasUsedDomain:
+	//	return "gasused"
+	default:
+		return "unknown domain"
+	}
+}
+
+func String2Domain(in string) (Domain, error) {
+	switch in {
+	case "accounts":
+		return AccountsDomain, nil
+	case "storage":
+		return StorageDomain, nil
+	case "code":
+		return CodeDomain, nil
+	case "commitment":
+		return CommitmentDomain, nil
+	//case "gasused":
+	//	return GasUsedDomain, nil
+	default:
+		return 0, fmt.Errorf("unknown history name: %s", in)
+	}
+}

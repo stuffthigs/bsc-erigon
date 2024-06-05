@@ -12,8 +12,8 @@ import (
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/hexutility"
 	"github.com/ledgerwatch/erigon-lib/gointerfaces"
-	"github.com/ledgerwatch/erigon-lib/gointerfaces/remote"
-	types2 "github.com/ledgerwatch/erigon-lib/gointerfaces/types"
+	remote "github.com/ledgerwatch/erigon-lib/gointerfaces/remoteproto"
+	types2 "github.com/ledgerwatch/erigon-lib/gointerfaces/typesproto"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	bortypes "github.com/ledgerwatch/erigon/polygon/bor/types"
 	"github.com/ledgerwatch/erigon/turbo/engineapi/engine_helpers"
@@ -40,7 +40,7 @@ func StageFinishCfg(db kv.RwDB, tmpDir string, forkValidator *engine_helpers.For
 	}
 }
 
-func FinishForward(s *StageState, tx kv.RwTx, cfg FinishCfg, initialCycle bool) error {
+func FinishForward(s *StageState, tx kv.RwTx, cfg FinishCfg) error {
 	useExternalTx := tx != nil
 	if !useExternalTx {
 		var err error
@@ -72,7 +72,7 @@ func FinishForward(s *StageState, tx kv.RwTx, cfg FinishCfg, initialCycle bool) 
 		cfg.forkValidator.NotifyCurrentHeight(executionAt)
 	}
 
-	if initialCycle {
+	if s.CurrentSyncCycle.IsInitialCycle {
 		if err := params.SetErigonVersion(tx, params.VersionKeyFinished); err != nil {
 			return err
 		}
@@ -164,7 +164,6 @@ func NotifyNewHeaders(ctx context.Context, finishStageBeforeSync uint64, finishS
 		if headerRLP != nil {
 			headersRlp = append(headersRlp, libcommon.CopyBytes(headerRLP))
 		}
-
 		return libcommon.Stopped(ctx.Done())
 	}); err != nil {
 		logger.Error("RPC Daemon notification failed", "err", err)

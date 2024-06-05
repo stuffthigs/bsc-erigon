@@ -110,7 +110,10 @@ func (c *Collector) Collect(k, v []byte) error {
 	return c.extractNextFunc(k, k, v)
 }
 
-func (c *Collector) LogLvl(v log.Lvl) { c.logLvl = v }
+func (c *Collector) LogLvl(v log.Lvl) *Collector {
+	c.logLvl = v
+	return c
+}
 
 func (c *Collector) flushBuffer(canStoreInRam bool) error {
 	if c.buf.Len() == 0 {
@@ -336,19 +339,6 @@ func mergeSortFiles(logPrefix string, providers []dataProvider, loadFunc simpleL
 				prevV = common.Copy(element.Value)
 			} else {
 				prevV = append(prevV, element.Value...)
-			}
-		} else if args.BufferType == SortableMergeBuffer {
-			if !bytes.Equal(prevK, element.Key) {
-				if prevK != nil {
-					if err = loadFunc(prevK, prevV); err != nil {
-						return err
-					}
-				}
-				// Need to copy k because the underlying space will be re-used for the next key
-				prevK = common.Copy(element.Key)
-				prevV = common.Copy(element.Value)
-			} else {
-				prevV = buf.(*oldestMergedEntrySortableBuffer).merge(prevV, element.Value)
 			}
 		} else {
 			if err = loadFunc(element.Key, element.Value); err != nil {

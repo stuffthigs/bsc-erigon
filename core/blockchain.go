@@ -28,6 +28,7 @@ import (
 	"golang.org/x/crypto/sha3"
 
 	"github.com/ledgerwatch/erigon-lib/chain"
+	"github.com/ledgerwatch/erigon-lib/common"
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/cmp"
 	"github.com/ledgerwatch/erigon-lib/common/dbg"
@@ -164,7 +165,7 @@ func ExecuteBlockEphemerallyForBSC(
 		syscall := func(contract libcommon.Address, data []byte) ([]byte, error) {
 			return SysCallContract(contract, data, chainConfig, ibs, header, engine, false /* constCall */)
 		}
-		outTxs, outReceipts, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), chainReader, syscall, logger)
+		outTxs, outReceipts, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), block.Requests(), chainReader, syscall, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -172,7 +173,7 @@ func ExecuteBlockEphemerallyForBSC(
 
 		// We need repack this block because transactions and receipts might be changed by consensus, and
 		// it won't pass receipts hash or bloom verification
-		newBlock = types.NewBlock(block.Header(), outTxs, block.Uncles(), outReceipts, block.Withdrawals())
+		newBlock = types.NewBlock(block.Header(), outTxs, block.Uncles(), outReceipts, block.Withdrawals(), block.Requests())
 		// Update receipts
 		if !vmConfig.NoReceipts {
 			receipts = outReceipts
@@ -249,6 +250,7 @@ func ExecuteBlockEphemerally(
 	includedTxs := make(types.Transactions, 0, block.Transactions().Len())
 	receipts := make(types.Receipts, 0, block.Transactions().Len())
 	noop := state.NewNoopWriter()
+	var allLogs types.Logs
 	for i, tx := range block.Transactions() {
 		ibs.SetTxContext(tx.Hash(), block.Hash(), i)
 		writeTrace := false
@@ -279,6 +281,7 @@ func ExecuteBlockEphemerally(
 				receipts = append(receipts, receipt)
 			}
 		}
+		allLogs = append(allLogs, receipt.Logs...)
 	}
 
 	receiptSha := types.DeriveSha(receipts)
@@ -307,7 +310,7 @@ func ExecuteBlockEphemerally(
 	}
 	if !vmConfig.ReadOnly {
 		txs := block.Transactions()
-		if _, _, _, err := FinalizeBlockExecution(engine, stateReader, block.Header(), txs, block.Uncles(), stateWriter, chainConfig, ibs, receipts, block.Withdrawals(), chainReader, false, logger); err != nil {
+		if _, _, _, err := FinalizeBlockExecution(engine, stateReader, block.Header(), txs, block.Uncles(), stateWriter, chainConfig, ibs, receipts, block.Withdrawals(), block.Requests(), chainReader, false, logger); err != nil {
 			return nil, err
 		}
 	}
@@ -345,6 +348,19 @@ func ExecuteBlockEphemerally(
 		execRs.StateSyncReceipt = stateSyncReceipt
 	}
 
+	if chainConfig.IsPrague(block.Time()) {
+		requests, err := types.ParseDepositLogs(allLogs, chainConfig.DepositContract)
+		if err != nil {
+			return nil, fmt.Errorf("error: could not parse requests logs: %v", err)
+		}
+
+		rh := types.DeriveSha(requests)
+		if *block.Header().RequestsRoot != rh && !vmConfig.NoReceipts {
+			// TODO(racytech): do we have to check it here?
+			return nil, fmt.Errorf("error: invalid requests root hash, expected: %v, got :%v", *block.Header().RequestsRoot, rh)
+		}
+	}
+
 	return execRs, nil
 }
 
@@ -361,7 +377,7 @@ func logReceipts(receipts types.Receipts, txns types.Transactions, cc *chain.Con
 		return
 	}
 
-	marshalled := make([]map[string]interface{}, len(receipts))
+	marshalled := make([]map[string]interface{}, 0, len(receipts))
 	for i, receipt := range receipts {
 		txn := txns[i]
 		marshalled = append(marshalled, ethutils.MarshalReceipt(receipt, txn, cc, header, txn.Hash(), true))
@@ -457,9 +473,9 @@ func SysCreate(contract libcommon.Address, data []byte, chainConfig chain.Config
 func FinalizeBlockExecution(
 	engine consensus.Engine, stateReader state.StateReader,
 	header *types.Header, txs types.Transactions, uncles []*types.Header,
-	stateWriter state.WriterWithChangeSets, cc *chain.Config,
+	stateWriter state.StateWriter, cc *chain.Config,
 	ibs *state.IntraBlockState, receipts types.Receipts,
-	withdrawals []*types.Withdrawal, chainReader consensus.ChainReader,
+	withdrawals []*types.Withdrawal, requests []*types.Request, chainReader consensus.ChainReader,
 	isMining bool,
 	logger log.Logger,
 ) (newBlock *types.Block, newTxs types.Transactions, newReceipt types.Receipts, err error) {
@@ -467,9 +483,9 @@ func FinalizeBlockExecution(
 		return SysCallContract(contract, data, cc, ibs, header, engine, false /* constCall */)
 	}
 	if isMining {
-		newBlock, newTxs, newReceipt, err = engine.FinalizeAndAssemble(cc, header, ibs, txs, uncles, receipts, withdrawals, chainReader, syscall, nil, logger)
+		newBlock, newTxs, newReceipt, err = engine.FinalizeAndAssemble(cc, header, ibs, txs, uncles, receipts, withdrawals, requests, chainReader, syscall, nil, logger)
 	} else {
-		_, _, err = engine.Finalize(cc, header, ibs, txs, uncles, receipts, withdrawals, chainReader, syscall, logger)
+		_, _, err = engine.Finalize(cc, header, ibs, txs, uncles, receipts, withdrawals, requests, chainReader, syscall, logger)
 	}
 	if err != nil {
 		return nil, nil, nil, err
@@ -479,8 +495,10 @@ func FinalizeBlockExecution(
 		return nil, nil, nil, fmt.Errorf("committing block %d failed: %w", header.Number.Uint64(), err)
 	}
 
-	if err := stateWriter.WriteChangeSets(); err != nil {
-		return nil, nil, nil, fmt.Errorf("writing changesets for block %d failed: %w", header.Number.Uint64(), err)
+	if casted, ok := stateWriter.(state.WriterWithChangeSets); ok {
+		if err := casted.WriteChangeSets(); err != nil {
+			return nil, nil, nil, fmt.Errorf("writing changesets for block %d failed: %w", header.Number.Uint64(), err)
+		}
 	}
 	return newBlock, newTxs, newReceipt, nil
 }
@@ -497,5 +515,22 @@ func InitializeBlockExecution(engine consensus.Engine, chain consensus.ChainHead
 
 	noop := state.NewNoopWriter()
 	ibs.FinalizeTx(cc.Rules(header.Number.Uint64(), header.Time), noop)
+	return nil
+}
+
+func BlockPostValidation(gasUsed, blobGasUsed uint64, checkReceipts bool, receiptHash common.Hash, h *types.Header) error {
+	if gasUsed != h.GasUsed {
+		return fmt.Errorf("gas used by execution: %d, in header: %d, headerNum=%d, %x",
+			gasUsed, h.GasUsed, h.Number.Uint64(), h.Hash())
+	}
+
+	if h.BlobGasUsed != nil && blobGasUsed != *h.BlobGasUsed {
+		return fmt.Errorf("blobGasUsed by execution: %d, in header: %d, headerNum=%d, %x",
+			blobGasUsed, *h.BlobGasUsed, h.Number.Uint64(), h.Hash())
+	}
+	if checkReceipts && receiptHash != h.ReceiptHash {
+		return fmt.Errorf("receiptHash mismatch: %x != %x, headerNum=%d, %x",
+			receiptHash, h.ReceiptHash, h.Number.Uint64(), h.Hash())
+	}
 	return nil
 }

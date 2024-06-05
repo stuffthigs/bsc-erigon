@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/hexutil"
+
+	"github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/core/rawdb"
 	"github.com/ledgerwatch/erigon/core/types"
@@ -93,6 +94,20 @@ func (api *GraphQLAPIImpl) GetBlockDetails(ctx context.Context, blockNumber rpc.
 	response := map[string]interface{}{}
 	response["block"] = getBlockRes
 	response["receipts"] = result
+
+	// Withdrawals
+	wresult := make([]map[string]interface{}, 0, len(block.Withdrawals()))
+	for _, withdrawal := range block.Withdrawals() {
+		wmap := make(map[string]interface{})
+		wmap["index"] = hexutil.Uint64(withdrawal.Index)
+		wmap["validator"] = hexutil.Uint64(withdrawal.Validator)
+		wmap["address"] = withdrawal.Address
+		wmap["amount"] = withdrawal.Amount
+
+		wresult = append(wresult, wmap)
+	}
+
+	response["withdrawals"] = wresult
 
 	return response, nil
 }

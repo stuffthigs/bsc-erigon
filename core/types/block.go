@@ -106,6 +106,8 @@ type Header struct {
 
 	ParentBeaconBlockRoot *libcommon.Hash `json:"parentBeaconBlockRoot"` // EIP-4788
 
+	RequestsRoot *libcommon.Hash `json:"requestsRoot"` // EIP-7685
+
 	// The verkle proof is ignored in legacy headers
 	Verkle        bool
 	VerkleProof   []byte
@@ -593,6 +595,7 @@ type Body struct {
 	Uncles       []*Header
 	Withdrawals  []*Withdrawal
 	Sidecars     []*BlobSidecar
+	Requests     []*Request
 }
 
 // RawBody is semi-parsed variant of Body, where transactions are still unparsed RLP strings
@@ -603,6 +606,7 @@ type RawBody struct {
 	Uncles       []*Header
 	Withdrawals  []*Withdrawal
 	Sidecars     []*BlobSidecar
+	Requests     []*Request
 }
 
 func (r *RawBody) CleanSidecars() {
@@ -614,6 +618,7 @@ type BodyForStorage struct {
 	TxAmount    uint32
 	Uncles      []*Header
 	Withdrawals []*Withdrawal
+	Requests    []*Request
 }
 
 // Alternative representation of the Block.
@@ -626,6 +631,7 @@ func (r RawBlock) AsBlock() (*Block, error) {
 	b := &Block{header: r.Header}
 	b.uncles = r.Body.Uncles
 	b.withdrawals = r.Body.Withdrawals
+	b.requests = r.Body.Requests
 
 	txs := make([]Transaction, len(r.Body.Transactions))
 	for i, tx := range r.Body.Transactions {
@@ -645,6 +651,7 @@ type Block struct {
 	uncles       []*Header
 	transactions Transactions
 	withdrawals  []*Withdrawal
+	requests     []*Request
 
 	// caches
 	hash atomic.Value
@@ -951,7 +958,7 @@ func (bb *Body) DecodeRLP(s *rlp.Stream) error {
 // The values of TxHash, UncleHash, ReceiptHash, Bloom, and WithdrawalHash
 // in the header are ignored and set to the values derived from
 // the given txs, uncles, receipts, and withdrawals.
-func NewBlock(header *Header, txs []Transaction, uncles []*Header, receipts []*Receipt, withdrawals []*Withdrawal) *Block {
+func NewBlock(header *Header, txs []Transaction, uncles []*Header, receipts []*Receipt, withdrawals []*Withdrawal, requests []*Request) *Block {
 	b := &Block{header: CopyHeader(header)}
 
 	// TODO: panic if len(txs) != len(receipts)
@@ -998,13 +1005,28 @@ func NewBlock(header *Header, txs []Transaction, uncles []*Header, receipts []*R
 
 	b.header.ParentBeaconBlockRoot = header.ParentBeaconBlockRoot
 
+	if requests == nil {
+		b.header.RequestsRoot = nil
+	} else if len(requests) == 0 {
+		b.header.RequestsRoot = &EmptyRootHash
+		b.requests = make(Requests, len(requests))
+	} else {
+		h := DeriveSha(Requests(requests))
+		b.header.RequestsRoot = &h
+		b.requests = make(Requests, len(requests))
+		for i, r := range requests {
+			rCopy := *r
+			b.requests[i] = &rCopy
+		}
+	}
+
 	return b
 }
 
 // NewBlockFromStorage like NewBlock but used to create Block object when read it from DB
 // in this case no reason to copy parts, or re-calculate headers fields - they are all stored in DB
-func NewBlockFromStorage(hash libcommon.Hash, header *Header, txs []Transaction, uncles []*Header, withdrawals []*Withdrawal) *Block {
-	b := &Block{header: header, transactions: txs, uncles: uncles, withdrawals: withdrawals}
+func NewBlockFromStorage(hash libcommon.Hash, header *Header, txs []Transaction, uncles []*Header, withdrawals []*Withdrawal, requests []*Request) *Block {
+	b := &Block{header: header, transactions: txs, uncles: uncles, withdrawals: withdrawals, requests: requests}
 	b.hash.Store(hash)
 	return b
 }
@@ -1024,6 +1046,7 @@ func NewBlockFromNetwork(header *Header, body *Body) *Block {
 		transactions: body.Transactions,
 		uncles:       body.Uncles,
 		withdrawals:  body.Withdrawals,
+		requests:     body.Requests,
 	}
 }
 
@@ -1064,6 +1087,10 @@ func CopyHeader(h *Header) *Header {
 	if h.ParentBeaconBlockRoot != nil {
 		cpy.ParentBeaconBlockRoot = new(libcommon.Hash)
 		cpy.ParentBeaconBlockRoot.SetBytes(h.ParentBeaconBlockRoot.Bytes())
+	}
+	if h.RequestsRoot != nil {
+		cpy.RequestsRoot = new(libcommon.Hash)
+		cpy.RequestsRoot.SetBytes(h.RequestsRoot.Bytes())
 	}
 	return &cpy
 }
@@ -1195,6 +1222,8 @@ func (b *Block) BaseFee() *big.Int {
 func (b *Block) WithdrawalsHash() *libcommon.Hash       { return b.header.WithdrawalsHash }
 func (b *Block) Withdrawals() Withdrawals               { return b.withdrawals }
 func (b *Block) ParentBeaconBlockRoot() *libcommon.Hash { return b.header.ParentBeaconBlockRoot }
+func (b *Block) RequestsRoot() *libcommon.Hash          { return b.header.RequestsRoot }
+func (b *Block) Requests() Requests                     { return b.requests }
 
 // Header returns a deep-copy of the entire block header using CopyHeader()
 func (b *Block) Header() *Header       { return CopyHeader(b.header) }
@@ -1202,7 +1231,7 @@ func (b *Block) HeaderNoCopy() *Header { return b.header }
 
 // Body returns the non-header content of the block.
 func (b *Block) Body() *Body {
-	bd := &Body{Transactions: b.transactions, Uncles: b.uncles, Withdrawals: b.withdrawals, Sidecars: b.sidecars}
+	bd := &Body{Transactions: b.transactions, Uncles: b.uncles, Withdrawals: b.withdrawals, Sidecars: b.sidecars, Requests: b.requests}
 	bd.SendersFromTxs()
 	return bd
 }
@@ -1218,7 +1247,7 @@ func (b *Block) SendersToTxs(senders []libcommon.Address) {
 // RawBody creates a RawBody based on the block. It is not very efficient, so
 // will probably be removed in favour of RawBlock. Also it panics
 func (b *Block) RawBody() *RawBody {
-	br := &RawBody{Transactions: make([][]byte, len(b.transactions)), Uncles: b.uncles, Withdrawals: b.withdrawals, Sidecars: b.sidecars}
+	br := &RawBody{Transactions: make([][]byte, len(b.transactions)), Uncles: b.uncles, Withdrawals: b.withdrawals, Sidecars: b.sidecars, Requests: b.requests}
 	for i, tx := range b.transactions {
 		var err error
 		br.Transactions[i], err = rlp.EncodeToBytes(tx)
@@ -1231,7 +1260,7 @@ func (b *Block) RawBody() *RawBody {
 
 // RawBody creates a RawBody based on the body.
 func (b *Body) RawBody() *RawBody {
-	br := &RawBody{Transactions: make([][]byte, len(b.Transactions)), Uncles: b.Uncles, Withdrawals: b.Withdrawals, Sidecars: b.Sidecars}
+	br := &RawBody{Transactions: make([][]byte, len(b.Transactions)), Uncles: b.Uncles, Withdrawals: b.Withdrawals, Sidecars: b.Sidecars, Requests: b.Requests}
 	for i, tx := range b.Transactions {
 		var err error
 		br.Transactions[i], err = rlp.EncodeToBytes(tx)
@@ -1298,6 +1327,20 @@ func (b *Block) HashCheck() error {
 	if hash := DeriveSha(b.Withdrawals()); hash != *b.WithdrawalsHash() {
 		return fmt.Errorf("block has invalid withdrawals hash: have %x, exp: %x", hash, b.WithdrawalsHash())
 	}
+
+	if b.RequestsRoot() == nil {
+		if b.Requests() != nil {
+			return errors.New("header missing RequestsRoot")
+		}
+		return nil
+	}
+	if b.Requests() == nil {
+		return errors.New("body missing Requests")
+	}
+	if hash := DeriveSha(b.Requests()); hash != *b.RequestsRoot() {
+		return fmt.Errorf("block has invalid requests root: have %x, exp: %x", hash, b.RequestsRoot())
+	}
+
 	return nil
 }
 
@@ -1354,6 +1397,15 @@ func (b *Block) Copy() *Block {
 		}
 	}
 
+	var requests []*Request
+	if b.requests != nil {
+		requests = make([]*Request, 0, len(b.requests))
+		for _, request := range b.requests {
+			rCopy := *request
+			requests = append(requests, &rCopy)
+		}
+	}
+
 	var hashValue atomic.Value
 	if value := b.hash.Load(); value != nil {
 		hash := value.(libcommon.Hash)
@@ -1371,6 +1423,7 @@ func (b *Block) Copy() *Block {
 		uncles:       uncles,
 		transactions: CopyTxs(b.transactions),
 		withdrawals:  withdrawals,
+		requests:     requests,
 		hash:         hashValue,
 		size:         sizeValue,
 	}
@@ -1387,6 +1440,7 @@ func (b *Block) WithSeal(header *Header) *Block {
 		uncles:       b.uncles,
 		withdrawals:  b.withdrawals,
 		sidecars:     b.sidecars,
+		requests:     b.requests,
 	}
 }
 
@@ -1507,6 +1561,25 @@ func decodeWithdrawals(appendList *[]*Withdrawal, s *rlp.Stream) error {
 			break
 		}
 		*appendList = append(*appendList, &w)
+	}
+	return checkErrListEnd(s, err)
+}
+
+func decodeRequests(appendList *[]*Request, s *rlp.Stream) error {
+	var err error
+	if _, err = s.List(); err != nil {
+		if errors.Is(err, rlp.EOL) {
+			*appendList = nil
+			return nil
+		}
+		return fmt.Errorf("read requests: %v", err)
+	}
+	for err == nil {
+		var r Request
+		if err = r.DecodeRLP(s); err != nil {
+			break
+		}
+		*appendList = append(*appendList, &r)
 	}
 	return checkErrListEnd(s, err)
 }

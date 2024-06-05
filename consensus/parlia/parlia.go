@@ -505,6 +505,11 @@ func (p *Parlia) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 	if header.Time > uint64(time.Now().Unix()) {
 		return fmt.Errorf("header %d, time %d, now %d, %w", header.Number.Uint64(), header.Time, time.Now().Unix(), consensus.ErrFutureBlock)
 	}
+
+	if err := ValidateHeaderUnusedFields(header); err != nil {
+		return err
+	}
+
 	// Check that the extra-data contains the vanity, validators and signature.
 	if len(header.Extra) < extraVanity {
 		return errMissingVanity
@@ -572,6 +577,25 @@ func (p *Parlia) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 
 	// All basic checks passed, verify cascading fields
 	return p.verifyCascadingFields(chain, header, parents)
+}
+
+// ValidateHeaderUnusedFields validates that unused fields are empty.
+func ValidateHeaderUnusedFields(header *types.Header) error {
+	// Ensure that the mix digest is zero as we don't have fork protection currently
+	if header.MixDigest != (libcommon.Hash{}) {
+		return errInvalidMixDigest
+	}
+
+	// Ensure that the block doesn't contain any uncles which are meaningless in PoA
+	if header.UncleHash != uncleHash {
+		return errInvalidUncleHash
+	}
+
+	if header.RequestsRoot != nil {
+		return consensus.ErrUnexpectedRequests
+	}
+
+	return misc.VerifyAbsenceOfCancunHeaderFields(header)
 }
 
 // verifyCascadingFields verifies all the header fields that are not standalone,
@@ -948,9 +972,12 @@ func (p *Parlia) splitTxs(txs types.Transactions, header *types.Header) (userTxs
 // Note: The block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
 func (p *Parlia) Finalize(_ *chain.Config, header *types.Header, state *state.IntraBlockState,
-	txs types.Transactions, _ []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal,
+	txs types.Transactions, _ []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal, requests []*types.Request,
 	chain consensus.ChainReader, syscall consensus.SystemCall, logger log.Logger,
 ) (types.Transactions, types.Receipts, error) {
+	if requests != nil || header.RequestsRoot != nil {
+		return nil, nil, consensus.ErrUnexpectedRequests
+	}
 	return p.finalize(header, state, txs, receipts, chain, false, logger)
 }
 
@@ -1139,14 +1166,17 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 // Note: The block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
 func (p *Parlia) FinalizeAndAssemble(chainConfig *chain.Config, header *types.Header, state *state.IntraBlockState,
-	txs types.Transactions, uncles []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal,
+	txs types.Transactions, uncles []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal, requests []*types.Request,
 	chain consensus.ChainReader, syscall consensus.SystemCall, call consensus.Call, logger log.Logger,
 ) (*types.Block, types.Transactions, types.Receipts, error) {
+	if requests != nil || header.RequestsRoot != nil {
+		return nil, nil, nil, consensus.ErrUnexpectedRequests
+	}
 	outTxs, outReceipts, err := p.finalize(header, state, txs, receipts, chain, true, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return types.NewBlock(header, outTxs, nil, outReceipts, withdrawals), outTxs, outReceipts, nil
+	return types.NewBlock(header, outTxs, nil, outReceipts, withdrawals, requests), outTxs, outReceipts, nil
 }
 
 // Authorize injects a private key into the consensus engine to mint new blocks

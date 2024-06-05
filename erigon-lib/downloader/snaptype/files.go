@@ -107,6 +107,8 @@ func ParseFileName(dir, fileName string) (res FileInfo, isE3Seedable bool, ok bo
 		return res, false, true
 	}
 	isStateFile := IsStateFile(fileName)
+	res.name = fileName
+	res.Path = filepath.Join(dir, fileName)
 	return res, isStateFile, isStateFile
 }
 
@@ -197,7 +199,7 @@ func IsSeedableExtension(name string) bool {
 	return false
 }
 
-const Erigon3SeedableSteps = 32
+const Erigon3SeedableSteps = 64
 
 // Use-cases:
 //   - produce and seed snapshots earlier on chain tip. reduce depnedency on "good peers with history" at p2p-network.

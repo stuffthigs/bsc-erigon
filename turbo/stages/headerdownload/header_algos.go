@@ -17,13 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ledgerwatch/erigon-lib/common/metrics"
-	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
-
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
+	"github.com/ledgerwatch/erigon-lib/common/dbg"
+	"github.com/ledgerwatch/erigon-lib/common/metrics"
 	"github.com/ledgerwatch/erigon-lib/etl"
 	"github.com/ledgerwatch/erigon-lib/kv"
-
+	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
 	"github.com/ledgerwatch/erigon/dataflow"
 	"github.com/ledgerwatch/erigon/turbo/services"
 
@@ -514,10 +513,6 @@ func (hd *HeaderDownload) InsertHeader(hf FeedHeaderFunc, terminalTotalDifficult
 	var lastTime uint64
 	if hd.insertQueue.Len() > 0 {
 		link := hd.insertQueue[0]
-		if hd.stageSyncUpperBound > 0 && link.blockHeight > hd.stageSyncUpperBound {
-			log.Warn("Link Beyond the specified upper bound, will not insert")
-			return false, true, 0, lastTime, nil
-		}
 		_, bad := hd.badHeaders[link.hash]
 		if !bad && !link.persisted {
 			_, bad = hd.badHeaders[link.header.ParentHash]
@@ -625,9 +620,7 @@ func (hd *HeaderDownload) InsertHeader(hf FeedHeaderFunc, terminalTotalDifficult
 			blocksToTTD = x.Uint64()
 		}
 	}
-	if hd.stageSyncStep > 0 && hd.highestInDb%hd.stageSyncStep == 0 {
-		return false, true, 0, lastTime, nil
-	}
+
 	return hd.insertQueue.Len() > 0 && hd.insertQueue[0].blockHeight <= hd.highestInDb+1, false, blocksToTTD, lastTime, nil
 }
 
@@ -849,6 +842,9 @@ func (hi *HeaderInserter) ForkingPoint(db kv.StatelessRwTx, header, parent *type
 	}
 	if ch == header.ParentHash {
 		forkingPoint = blockHeight - 1
+		if forkingPoint == 0 {
+			log.Warn("[dbg] HeaderInserter.ForkPoint1", "blockHeight", blockHeight)
+		}
 	} else {
 		// Going further back
 		ancestorHash := parent.ParentHash
@@ -884,6 +880,9 @@ func (hi *HeaderInserter) ForkingPoint(db kv.StatelessRwTx, header, parent *type
 		}
 		// Loop above terminates when either err != nil (handled already) or ch == ancestorHash, therefore ancestorHeight is our forking point
 		forkingPoint = ancestorHeight
+		if forkingPoint == 0 {
+			log.Warn("[dbg] HeaderInserter.ForkPoint2", "blockHeight", blockHeight)
+		}
 	}
 	return
 }
@@ -1044,6 +1043,11 @@ func (hi *HeaderInserter) GetHighestTimestamp() uint64 {
 
 func (hi *HeaderInserter) UnwindPoint() uint64 {
 	return hi.unwindPoint
+}
+
+func (hi *HeaderInserter) SetUnwindPoint(v uint64) {
+	log.Warn("[dbg] HeaderInserter: set unwind point", "v", v, "stack", dbg.Stack())
+	hi.unwindPoint = v
 }
 
 func (hi *HeaderInserter) Unwind() bool {

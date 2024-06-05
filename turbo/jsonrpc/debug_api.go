@@ -16,7 +16,6 @@ import (
 	"github.com/ledgerwatch/erigon-lib/kv/order"
 	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
 
-	"github.com/ledgerwatch/erigon/common/changeset"
 	"github.com/ledgerwatch/erigon/core/rawdb"
 	"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
@@ -26,7 +25,6 @@ import (
 	"github.com/ledgerwatch/erigon/rpc"
 	"github.com/ledgerwatch/erigon/turbo/adapter/ethapi"
 	"github.com/ledgerwatch/erigon/turbo/rpchelper"
-	"github.com/ledgerwatch/erigon/turbo/transactions"
 )
 
 // AccountRangeMaxResults is the maximum number of results to be returned per call
@@ -71,34 +69,15 @@ func (api *PrivateDebugAPIImpl) StorageRangeAt(ctx context.Context, blockHash co
 	}
 	defer tx.Rollback()
 
-	chainConfig, err := api.chainConfig(ctx, tx)
+	number := rawdb.ReadHeaderNumber(tx, blockHash)
+	if number == nil {
+		return StorageRangeResult{}, fmt.Errorf("block not found")
+	}
+	minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
 	if err != nil {
 		return StorageRangeResult{}, err
 	}
-	engine := api.engine()
-
-	if api.historyV3(tx) {
-		number := rawdb.ReadHeaderNumber(tx, blockHash)
-		minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
-		if err != nil {
-			return StorageRangeResult{}, err
-		}
-		return storageRangeAtV3(tx.(kv.TemporalTx), contractAddress, keyStart, minTxNum+txIndex, maxResult)
-	}
-
-	block, err := api.blockByHashWithSenders(ctx, tx, blockHash)
-	if err != nil {
-		return StorageRangeResult{}, err
-	}
-	if block == nil {
-		return StorageRangeResult{}, nil
-	}
-
-	_, _, _, _, stateReader, err := transactions.ComputeTxEnv(ctx, engine, block, chainConfig, api._blockReader, tx, int(txIndex), api.historyV3(tx))
-	if err != nil {
-		return StorageRangeResult{}, err
-	}
-	return storageRangeAt(stateReader.(*state.PlainState), contractAddress, keyStart, maxResult)
+	return storageRangeAtV3(tx.(kv.TemporalTx), contractAddress, keyStart, minTxNum+txIndex, maxResult)
 }
 
 // AccountRange implements debug_accountRange. Returns a range of accounts involved in the given block rangeb
@@ -180,7 +159,7 @@ func (api *PrivateDebugAPIImpl) AccountRange(ctx context.Context, blockNrOrHash 
 		maxResults = AccountRangeMaxResults
 	}
 
-	dumper := state.NewDumper(tx, blockNumber, api.historyV3(tx))
+	dumper := state.NewDumper(tx, blockNumber)
 	res, err := dumper.IteratorDump(excludeCode, excludeStorage, common.BytesToAddress(startKey), maxResults)
 	if err != nil {
 		return state.IteratorDump{}, err
@@ -233,18 +212,15 @@ func (api *PrivateDebugAPIImpl) GetModifiedAccountsByNumber(ctx context.Context,
 	}
 
 	//[from, to)
-	if api.historyV3(tx) {
-		startTxNum, err := rawdbv3.TxNums.Min(tx, startNum)
-		if err != nil {
-			return nil, err
-		}
-		endTxNum, err := rawdbv3.TxNums.Max(tx, endNum-1)
-		if err != nil {
-			return nil, err
-		}
-		return getModifiedAccountsV3(tx.(kv.TemporalTx), startTxNum, endTxNum)
+	startTxNum, err := rawdbv3.TxNums.Min(tx, startNum)
+	if err != nil {
+		return nil, err
 	}
-	return changeset.GetModifiedAccounts(tx, startNum, endNum)
+	endTxNum, err := rawdbv3.TxNums.Max(tx, endNum-1)
+	if err != nil {
+		return nil, err
+	}
+	return getModifiedAccountsV3(tx.(kv.TemporalTx), startTxNum, endTxNum)
 }
 
 // getModifiedAccountsV3 returns a list of addresses that were modified in the block range
@@ -254,6 +230,7 @@ func getModifiedAccountsV3(tx kv.TemporalTx, startTxNum, endTxNum uint64) ([]com
 	if err != nil {
 		return nil, err
 	}
+	defer it.Close()
 
 	changedAddrs := make(map[common.Address]struct{})
 	for it.HasNext() {
@@ -312,18 +289,15 @@ func (api *PrivateDebugAPIImpl) GetModifiedAccountsByHash(ctx context.Context, s
 	}
 
 	//[from, to)
-	if api.historyV3(tx) {
-		startTxNum, err := rawdbv3.TxNums.Min(tx, startNum)
-		if err != nil {
-			return nil, err
-		}
-		endTxNum, err := rawdbv3.TxNums.Max(tx, endNum-1)
-		if err != nil {
-			return nil, err
-		}
-		return getModifiedAccountsV3(tx.(kv.TemporalTx), startTxNum, endTxNum)
+	startTxNum, err := rawdbv3.TxNums.Min(tx, startNum)
+	if err != nil {
+		return nil, err
 	}
-	return changeset.GetModifiedAccounts(tx, startNum, endNum)
+	endTxNum, err := rawdbv3.TxNums.Max(tx, endNum-1)
+	if err != nil {
+		return nil, err
+	}
+	return getModifiedAccountsV3(tx.(kv.TemporalTx), startTxNum, endTxNum)
 }
 
 func (api *PrivateDebugAPIImpl) AccountAt(ctx context.Context, blockHash common.Hash, txIndex uint64, address common.Address) (*AccountResult, error) {
@@ -333,69 +307,43 @@ func (api *PrivateDebugAPIImpl) AccountAt(ctx context.Context, blockHash common.
 	}
 	defer tx.Rollback()
 
-	if api.historyV3(tx) {
-		number := rawdb.ReadHeaderNumber(tx, blockHash)
-		if number == nil {
-			return nil, nil
-		}
-		canonicalHash, _ := api._blockReader.CanonicalHash(ctx, tx, *number)
-		isCanonical := canonicalHash == blockHash
-		if !isCanonical {
-			return nil, fmt.Errorf("block hash is not canonical")
-		}
-
-		minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
-		if err != nil {
-			return nil, err
-		}
-		ttx := tx.(kv.TemporalTx)
-		v, ok, err := ttx.DomainGetAsOf(kv.AccountsDomain, address[:], nil, minTxNum+txIndex+1)
-		if err != nil {
-			return nil, err
-		}
-		if !ok || len(v) == 0 {
-			return &AccountResult{}, nil
-		}
-
-		var a accounts.Account
-		if err := accounts.DeserialiseV3(&a, v); err != nil {
-			return nil, err
-		}
-		result := &AccountResult{}
-		result.Balance.ToInt().Set(a.Balance.ToBig())
-		result.Nonce = hexutil.Uint64(a.Nonce)
-		result.CodeHash = a.CodeHash
-
-		code, _, err := ttx.DomainGetAsOf(kv.CodeDomain, address[:], a.CodeHash[:], minTxNum+txIndex)
-		if err != nil {
-			return nil, err
-		}
-		result.Code = code
-		return result, nil
-	}
-
-	chainConfig, err := api.chainConfig(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-	engine := api.engine()
-
-	block, err := api.blockByHashWithSenders(ctx, tx, blockHash)
-	if err != nil {
-		return nil, err
-	}
-	if block == nil {
+	number := rawdb.ReadHeaderNumber(tx, blockHash)
+	if number == nil {
 		return nil, nil
 	}
-	_, _, _, ibs, _, err := transactions.ComputeTxEnv(ctx, engine, block, chainConfig, api._blockReader, tx, int(txIndex), api.historyV3(tx))
+	canonicalHash, _ := api._blockReader.CanonicalHash(ctx, tx, *number)
+	isCanonical := canonicalHash == blockHash
+	if !isCanonical {
+		return nil, fmt.Errorf("block hash is not canonical")
+	}
+
+	minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
 	if err != nil {
+		return nil, err
+	}
+	ttx := tx.(kv.TemporalTx)
+	v, ok, err := ttx.DomainGetAsOf(kv.AccountsDomain, address[:], nil, minTxNum+txIndex+1)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || len(v) == 0 {
+		return &AccountResult{}, nil
+	}
+
+	var a accounts.Account
+	if err := accounts.DeserialiseV3(&a, v); err != nil {
 		return nil, err
 	}
 	result := &AccountResult{}
-	result.Balance.ToInt().Set(ibs.GetBalance(address).ToBig())
-	result.Nonce = hexutil.Uint64(ibs.GetNonce(address))
-	result.Code = ibs.GetCode(address)
-	result.CodeHash = ibs.GetCodeHash(address)
+	result.Balance.ToInt().Set(a.Balance.ToBig())
+	result.Nonce = hexutil.Uint64(a.Nonce)
+	result.CodeHash = a.CodeHash
+
+	code, _, err := ttx.DomainGetAsOf(kv.CodeDomain, address[:], nil, minTxNum+txIndex)
+	if err != nil {
+		return nil, err
+	}
+	result.Code = code
 	return result, nil
 }
 

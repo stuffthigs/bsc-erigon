@@ -9,25 +9,25 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
+	"github.com/ledgerwatch/log/v3"
+	"github.com/ledgerwatch/secp256k1"
 
 	"github.com/ledgerwatch/erigon-lib/chain"
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
-	"github.com/ledgerwatch/erigon-lib/common/cmp"
 	"github.com/ledgerwatch/erigon-lib/common/hexutility"
 	"github.com/ledgerwatch/erigon-lib/common/length"
 	"github.com/ledgerwatch/erigon-lib/etl"
 	"github.com/ledgerwatch/erigon-lib/kv"
-	"github.com/ledgerwatch/erigon/consensus"
-	"github.com/ledgerwatch/erigon/turbo/services"
-	"github.com/ledgerwatch/log/v3"
-	"github.com/ledgerwatch/secp256k1"
+	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
 
 	"github.com/ledgerwatch/erigon/common/debug"
+	"github.com/ledgerwatch/erigon/consensus"
 	"github.com/ledgerwatch/erigon/core/rawdb"
 	"github.com/ledgerwatch/erigon/core/types"
+	"github.com/ledgerwatch/erigon/eth/ethconfig"
 	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
 	"github.com/ledgerwatch/erigon/ethdb/prune"
+	"github.com/ledgerwatch/erigon/turbo/services"
 	"github.com/ledgerwatch/erigon/turbo/stages/headerdownload"
 )
 
@@ -45,9 +45,10 @@ type SendersCfg struct {
 	hd              *headerdownload.HeaderDownload
 	blockReader     services.FullBlockReader
 	loopBreakCheck  func(int) bool
+	syncCfg         ethconfig.Sync
 }
 
-func StageSendersCfg(db kv.RwDB, chainCfg *chain.Config, badBlockHalt bool, tmpdir string, prune prune.Mode, blockReader services.FullBlockReader, hd *headerdownload.HeaderDownload, loopBreakCheck func(int) bool) SendersCfg {
+func StageSendersCfg(db kv.RwDB, chainCfg *chain.Config, syncCfg ethconfig.Sync, badBlockHalt bool, tmpdir string, prune prune.Mode, blockReader services.FullBlockReader, hd *headerdownload.HeaderDownload, loopBreakCheck func(int) bool) SendersCfg {
 	const sendersBatchSize = 10000
 	const sendersBlockSize = 4096
 
@@ -65,6 +66,7 @@ func StageSendersCfg(db kv.RwDB, chainCfg *chain.Config, badBlockHalt bool, tmpd
 		hd:              hd,
 		blockReader:     blockReader,
 		loopBreakCheck:  loopBreakCheck,
+		syncCfg:         syncCfg,
 	}
 }
 
@@ -91,7 +93,7 @@ func SpawnRecoverSendersStage(cfg SendersCfg, s *StageState, u Unwinder, tx kv.R
 
 	var to = prevStageProgress
 	if toBlock > 0 {
-		to = cmp.Min(prevStageProgress, toBlock)
+		to = min(prevStageProgress, toBlock)
 	}
 	if to < s.BlockNumber {
 		return nil
@@ -229,6 +231,17 @@ Loop:
 			continue
 		}
 
+		j := &senderRecoveryJob{
+			body:        body,
+			key:         k,
+			blockNumber: blockNumber,
+			blockTime:   header.Time,
+			blockHash:   blockHash,
+			index:       int(blockNumber) - int(s.BlockNumber) - 1,
+		}
+		if j.index < 0 {
+			panic(j.index) //uint-underflow
+		}
 		select {
 		case recoveryErr := <-errCh:
 			if recoveryErr.err != nil {
@@ -238,13 +251,7 @@ Loop:
 				}
 				break Loop
 			}
-		case jobs <- &senderRecoveryJob{
-			body:        body,
-			key:         k,
-			blockNumber: blockNumber,
-			blockTime:   header.Time,
-			blockHash:   blockHash,
-			index:       int(blockNumber - s.BlockNumber - 1)}:
+		case jobs <- j:
 		}
 	}
 
@@ -270,7 +277,9 @@ Loop:
 		}
 
 		if to > s.BlockNumber {
-			u.UnwindTo(minBlockNum-1, BadBlock(minBlockHash, minBlockErr))
+			if err := u.UnwindTo(minBlockNum-1, BadBlock(minBlockHash, minBlockErr), tx); err != nil {
+				return err
+			}
 		}
 	} else {
 		if err := collectorSenders.Load(tx, kv.Senders, etl.IdentityLoadFunc, etl.TransformArgs{

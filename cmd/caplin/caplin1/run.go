@@ -7,9 +7,12 @@ import (
 	"path"
 	"time"
 
+	"github.com/ledgerwatch/log/v3"
 	"google.golang.org/grpc/credentials"
 
-	proto_downloader "github.com/ledgerwatch/erigon-lib/gointerfaces/downloader"
+	"golang.org/x/sync/semaphore"
+
+	proto_downloader "github.com/ledgerwatch/erigon-lib/gointerfaces/downloaderproto"
 	"github.com/ledgerwatch/erigon/cl/aggregation"
 	"github.com/ledgerwatch/erigon/cl/antiquary"
 	"github.com/ledgerwatch/erigon/cl/beacon"
@@ -35,7 +38,6 @@ import (
 
 	"github.com/ledgerwatch/erigon/cl/persistence/beacon_indicies"
 	"github.com/ledgerwatch/erigon/cl/persistence/blob_storage"
-	"github.com/ledgerwatch/erigon/cl/persistence/db_config"
 	"github.com/ledgerwatch/erigon/cl/persistence/format/snapshot_format"
 	state_accessors "github.com/ledgerwatch/erigon/cl/persistence/state"
 	"github.com/ledgerwatch/erigon/cl/persistence/state/historical_states_reader"
@@ -49,7 +51,6 @@ import (
 	"github.com/ledgerwatch/erigon/cl/pool"
 
 	"github.com/Giulio2002/bls"
-	"github.com/ledgerwatch/log/v3"
 
 	"github.com/ledgerwatch/erigon-lib/common/datadir"
 	"github.com/ledgerwatch/erigon-lib/kv"
@@ -58,7 +59,6 @@ import (
 )
 
 func OpenCaplinDatabase(ctx context.Context,
-	databaseConfig db_config.DatabaseConfiguration,
 	beaconConfig *clparams.BeaconChainConfig,
 	ethClock eth_clock.EthereumClock,
 	dbPath string,
@@ -87,10 +87,6 @@ func OpenCaplinDatabase(ctx context.Context,
 	}
 	defer tx.Rollback()
 
-	if err := db_config.WriteConfigurationIfNotExist(ctx, tx, databaseConfig); err != nil {
-		return nil, nil, err
-	}
-
 	if err := tx.Commit(); err != nil {
 		return nil, nil, err
 	}
@@ -106,7 +102,7 @@ func OpenCaplinDatabase(ctx context.Context,
 
 func RunCaplinPhase1(ctx context.Context, engine execution_client.ExecutionEngine, config *ethconfig.Config, networkConfig *clparams.NetworkConfig,
 	beaconConfig *clparams.BeaconChainConfig, ethClock eth_clock.EthereumClock, state *state.CachingBeaconState, dirs datadir.Dirs, eth1Getter snapshot_format.ExecutionBlockReaderByNumber,
-	snDownloader proto_downloader.DownloaderClient, backfilling, blobBackfilling bool, states bool, indexDB kv.RwDB, blobStorage blob_storage.BlobStorage, creds credentials.TransportCredentials) error {
+	snDownloader proto_downloader.DownloaderClient, backfilling, blobBackfilling bool, states bool, indexDB kv.RwDB, blobStorage blob_storage.BlobStorage, creds credentials.TransportCredentials, snBuildSema *semaphore.Weighted) error {
 	ctx, cn := context.WithCancel(ctx)
 	defer cn()
 
@@ -151,9 +147,9 @@ func RunCaplinPhase1(ctx context.Context, engine execution_client.ExecutionEngin
 	activeIndicies := state.GetActiveValidatorsIndices(state.Slot() / beaconConfig.SlotsPerEpoch)
 
 	sentinel, err := service.StartSentinelService(&sentinel.SentinelConfig{
-		IpAddr:         config.LightClientDiscoveryAddr,
-		Port:           int(config.LightClientDiscoveryPort),
-		TCPPort:        uint(config.LightClientDiscoveryTCPPort),
+		IpAddr:         config.CaplinDiscoveryAddr,
+		Port:           int(config.CaplinDiscoveryPort),
+		TCPPort:        uint(config.CaplinDiscoveryTCPPort),
 		NetworkConfig:  networkConfig,
 		BeaconConfig:   beaconConfig,
 		TmpDir:         dirs.Tmp,
@@ -232,11 +228,6 @@ func RunCaplinPhase1(ctx context.Context, engine execution_client.ExecutionEngin
 	}
 	defer tx.Rollback()
 
-	dbConfig, err := db_config.ReadConfiguration(ctx, tx)
-	if err != nil {
-		return err
-	}
-
 	if err := state_accessors.InitializeStaticTables(tx, state); err != nil {
 		return err
 	}
@@ -256,7 +247,7 @@ func RunCaplinPhase1(ctx context.Context, engine execution_client.ExecutionEngin
 	if err != nil {
 		return err
 	}
-	antiq := antiquary.NewAntiquary(ctx, blobStorage, genesisState, vTables, beaconConfig, dirs, snDownloader, indexDB, csn, rcsn, logger, states, backfilling, blobBackfilling)
+	antiq := antiquary.NewAntiquary(ctx, blobStorage, genesisState, vTables, beaconConfig, dirs, snDownloader, indexDB, csn, rcsn, logger, states, backfilling, blobBackfilling, snBuildSema)
 	// Create the antiquary
 	go func() {
 		if err := antiq.Loop(); err != nil {
@@ -308,7 +299,7 @@ func RunCaplinPhase1(ctx context.Context, engine execution_client.ExecutionEngin
 		log.Info("Beacon API started", "addr", config.BeaconRouter.Address)
 	}
 
-	stageCfg := stages.ClStagesCfg(beaconRpc, antiq, ethClock, beaconConfig, state, engine, gossipManager, forkChoice, indexDB, csn, rcsn, dirs.Tmp, dbConfig, backfilling, blobBackfilling, syncedDataManager, emitters, blobStorage, attestationProducer)
+	stageCfg := stages.ClStagesCfg(beaconRpc, antiq, ethClock, beaconConfig, state, engine, gossipManager, forkChoice, indexDB, csn, rcsn, dirs.Tmp, uint64(config.LoopBlockLimit), backfilling, blobBackfilling, syncedDataManager, emitters, blobStorage, attestationProducer)
 	sync := stages.ConsensusClStages(ctx, stageCfg)
 
 	logger.Info("[Caplin] starting clstages loop")

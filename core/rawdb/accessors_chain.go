@@ -21,28 +21,24 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"time"
 
-	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
-
 	"github.com/gballet/go-verkle"
 	"github.com/ledgerwatch/log/v3"
 
 	"github.com/ledgerwatch/erigon-lib/common"
-	"github.com/ledgerwatch/erigon-lib/common/cmp"
 	"github.com/ledgerwatch/erigon-lib/common/dbg"
 	"github.com/ledgerwatch/erigon-lib/common/hexutility"
 	"github.com/ledgerwatch/erigon-lib/common/length"
 	"github.com/ledgerwatch/erigon-lib/kv"
+	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
 	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
 
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/ethdb/cbor"
-	"github.com/ledgerwatch/erigon/polygon/heimdall"
 	"github.com/ledgerwatch/erigon/rlp"
 )
 
@@ -310,27 +306,17 @@ func ReadCurrentHeaderHavingBody(db kv.Getter) *types.Header {
 	return ReadHeader(db, headHash, *headNumber)
 }
 
-func ReadHeadersByNumber(db kv.Tx, number uint64) ([]*types.Header, error) {
-	var res []*types.Header
-	c, err := db.Cursor(kv.Headers)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
+func ReadHeadersByNumber(db kv.Getter, number uint64) (res []*types.Header, err error) {
 	prefix := hexutility.EncodeTs(number)
-	for k, v, err := c.Seek(prefix); k != nil; k, v, err = c.Next() {
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.HasPrefix(k, prefix) {
-			break
-		}
-
+	if err = db.ForPrefix(kv.Headers, prefix, func(k, v []byte) error {
 		header := new(types.Header)
 		if err := rlp.Decode(bytes.NewReader(v), header); err != nil {
-			return nil, fmt.Errorf("invalid block header RLP: hash=%x, err=%w", k[8:], err)
+			return fmt.Errorf("invalid block header RLP: hash=%x, err=%w", k[8:], err)
 		}
 		res = append(res, header)
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return res, nil
 }
@@ -620,6 +606,7 @@ func ReadBody(db kv.Getter, hash common.Hash, number uint64) (*types.Body, uint6
 	body := new(types.Body)
 	body.Uncles = bodyForStorage.Uncles
 	body.Withdrawals = bodyForStorage.Withdrawals
+	body.Requests = bodyForStorage.Requests
 
 	if bodyForStorage.TxAmount < 2 {
 		panic(fmt.Sprintf("block body hash too few txs amount: %d, %d", number, bodyForStorage.TxAmount))
@@ -664,6 +651,7 @@ func WriteRawBody(db kv.RwTx, hash common.Hash, number uint64, body *types.RawBo
 		TxAmount:    uint32(len(body.Transactions)) + 2, /*system txs*/
 		Uncles:      body.Uncles,
 		Withdrawals: body.Withdrawals,
+		Requests:    body.Requests,
 	}
 	if err = WriteBodyForStorage(db, hash, number, &data); err != nil {
 		return false, fmt.Errorf("WriteBodyForStorage: %w", err)
@@ -687,6 +675,7 @@ func WriteBody(db kv.RwTx, hash common.Hash, number uint64, body *types.Body) (e
 		TxAmount:    uint32(len(body.Transactions)) + 2,
 		Uncles:      body.Uncles,
 		Withdrawals: body.Withdrawals,
+		Requests:    body.Requests,
 	}
 	if err = WriteBodyForStorage(db, hash, number, &data); err != nil {
 		return fmt.Errorf("failed to write body: %w", err)
@@ -716,7 +705,7 @@ func DeleteBody(db kv.Deleter, hash common.Hash, number uint64) {
 }
 
 func AppendCanonicalTxNums(tx kv.RwTx, from uint64) (err error) {
-	nextBaseTxNum := -1
+	nextBaseTxNum := 0
 	if from > 0 {
 		nextBaseTxNumFromDb, err := rawdbv3.TxNums.Max(tx, from-1)
 		if err != nil {
@@ -824,11 +813,7 @@ func ReadRawReceipts(db kv.Tx, blockNum uint64) types.Receipts {
 		log.Error("logs fetching failed", "err", err)
 		return nil
 	}
-	defer func() {
-		if casted, ok := it.(kv.Closer); ok {
-			casted.Close()
-		}
-	}()
+	defer it.Close()
 	for it.HasNext() {
 		k, v, err := it.Next()
 		if err != nil {
@@ -993,7 +978,7 @@ func ReadBlock(tx kv.Getter, hash common.Hash, number uint64) *types.Block {
 	if body == nil {
 		return nil
 	}
-	return types.NewBlockFromStorage(hash, header, body.Transactions, body.Uncles, body.Withdrawals)
+	return types.NewBlockFromStorage(hash, header, body.Transactions, body.Uncles, body.Withdrawals, body.Requests)
 }
 
 // HasBlock - is more efficient than ReadBlock because doesn't read transactions.
@@ -1034,39 +1019,47 @@ func WriteBlock(db kv.RwTx, block *types.Block) error {
 // keeps genesis in db: [1, to)
 // doesn't change sequences of kv.EthTx and kv.NonCanonicalTxs
 // doesn't delete Receipts, Senders, Canonical markers, TotalDifficulty
-func PruneBlocks(tx kv.RwTx, blockTo uint64, blocksDeleteLimit int) error {
+// Returns false if there is nothing to prune
+func PruneBlocks(tx kv.RwTx, blockTo uint64, blocksDeleteLimit int) (existBlocksToPrune bool, err error) {
+	existBlocksToPrune = true // assume there are blocks to prune
+
 	c, err := tx.Cursor(kv.Headers)
 	if err != nil {
-		return err
+		return existBlocksToPrune, err
 	}
 	defer c.Close()
 
 	// find first non-genesis block
 	firstK, _, err := c.Seek(hexutility.EncodeTs(1))
 	if err != nil {
-		return err
+		return existBlocksToPrune, err
 	}
 	if firstK == nil { //nothing to delete
-		return err
+		existBlocksToPrune = false
+
+		return existBlocksToPrune, err
 	}
 	blockFrom := binary.BigEndian.Uint64(firstK)
-	stopAtBlock := cmp.Min(blockTo, blockFrom+uint64(blocksDeleteLimit))
+	stopAtBlock := min(blockTo, blockFrom+uint64(blocksDeleteLimit))
 
 	var b *types.BodyForStorage
 
 	for k, _, err := c.Current(); k != nil; k, _, err = c.Next() {
 		if err != nil {
-			return err
+			return existBlocksToPrune, err
 		}
 
 		n := binary.BigEndian.Uint64(k)
 		if n >= stopAtBlock { // [from, to)
+			if stopAtBlock == blockTo { // in order to prevent situation when we quit the cycle before reaching blockTo
+				existBlocksToPrune = false // and think that there is nothing to prune but there is
+			}
 			break
 		}
 
 		b, err = ReadBodyForStorageByKey(tx, k)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if b == nil {
 			log.Debug("PruneBlocks: block body not found", "height", n)
@@ -1075,7 +1068,7 @@ func PruneBlocks(tx kv.RwTx, blockTo uint64, blocksDeleteLimit int) error {
 			for txID := b.BaseTxId; txID < b.BaseTxId+uint64(b.TxAmount); txID++ {
 				binary.BigEndian.PutUint64(txIDBytes, txID)
 				if err = tx.Delete(kv.EthTx, txIDBytes); err != nil {
-					return err
+					return false, err
 				}
 			}
 		}
@@ -1083,127 +1076,17 @@ func PruneBlocks(tx kv.RwTx, blockTo uint64, blocksDeleteLimit int) error {
 		// for the next key and Delete below will end up deleting 1 more record than required
 		kCopy := common.Copy(k)
 		if err = tx.Delete(kv.Senders, kCopy); err != nil {
-			return err
+			return false, err
 		}
 		if err = tx.Delete(kv.BlockBody, kCopy); err != nil {
-			return err
+			return false, err
 		}
 		if err = tx.Delete(kv.Headers, kCopy); err != nil {
-			return err
+			return false, err
 		}
 	}
 
-	return nil
-}
-
-// PruneBorBlocks - delete [1, to) old blocks after moving it to snapshots.
-// keeps genesis in db: [1, to)
-// doesn't change sequences of kv.EthTx and kv.NonCanonicalTxs
-// doesn't delete Receipts, Senders, Canonical markers, TotalDifficulty
-func PruneBorBlocks(tx kv.RwTx, blockTo uint64, blocksDeleteLimit int, SpanIdAt func(number uint64) uint64) error {
-	c, err := tx.Cursor(kv.BorEventNums)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	var blockNumBytes [8]byte
-	binary.BigEndian.PutUint64(blockNumBytes[:], blockTo)
-	k, v, err := c.Seek(blockNumBytes[:])
-	if err != nil {
-		return err
-	}
-	var eventIdTo uint64 = math.MaxUint64
-	if k != nil {
-		eventIdTo = binary.BigEndian.Uint64(v)
-	}
-	c1, err := tx.RwCursor(kv.BorEvents)
-	if err != nil {
-		return err
-	}
-	defer c1.Close()
-	counter := blocksDeleteLimit
-	for k, _, err = c1.First(); err == nil && k != nil && counter > 0; k, _, err = c1.Next() {
-		eventId := binary.BigEndian.Uint64(k)
-		if eventId >= eventIdTo {
-			break
-		}
-		if err = c1.DeleteCurrent(); err != nil {
-			return err
-		}
-		counter--
-	}
-	if err != nil {
-		return err
-	}
-	firstSpanToKeep := SpanIdAt(blockTo)
-	c2, err := tx.RwCursor(kv.BorSpans)
-	if err != nil {
-		return err
-	}
-	defer c2.Close()
-	counter = blocksDeleteLimit
-	for k, _, err := c2.First(); err == nil && k != nil && counter > 0; k, _, err = c2.Next() {
-		spanId := binary.BigEndian.Uint64(k)
-		if spanId >= firstSpanToKeep {
-			break
-		}
-		if err = c2.DeleteCurrent(); err != nil {
-			return err
-		}
-		counter--
-	}
-
-	checkpointCursor, err := tx.RwCursor(kv.BorCheckpoints)
-	if err != nil {
-		return err
-	}
-
-	defer checkpointCursor.Close()
-	lastCheckpointToRemove, err := heimdall.CheckpointIdAt(tx, blockTo)
-
-	if err != nil {
-		return err
-	}
-
-	var checkpointIdBytes [8]byte
-	binary.BigEndian.PutUint64(checkpointIdBytes[:], uint64(lastCheckpointToRemove))
-	for k, _, err := checkpointCursor.Seek(checkpointIdBytes[:]); err == nil && k != nil; k, _, err = checkpointCursor.Prev() {
-		if err = checkpointCursor.DeleteCurrent(); err != nil {
-			return err
-		}
-	}
-
-	milestoneCursor, err := tx.RwCursor(kv.BorMilestones)
-
-	if err != nil {
-		return err
-	}
-
-	defer milestoneCursor.Close()
-
-	var lastMilestoneToRemove heimdall.MilestoneId
-
-	for blockCount := 1; err != nil && blockCount < blocksDeleteLimit; blockCount++ {
-		lastMilestoneToRemove, err = heimdall.MilestoneIdAt(tx, blockTo-uint64(blockCount))
-
-		if !errors.Is(err, heimdall.ErrMilestoneNotFound) {
-			return err
-		} else {
-			if blockCount == blocksDeleteLimit-1 {
-				return nil
-			}
-		}
-	}
-
-	var milestoneIdBytes [8]byte
-	binary.BigEndian.PutUint64(milestoneIdBytes[:], uint64(lastMilestoneToRemove))
-	for k, _, err := milestoneCursor.Seek(milestoneIdBytes[:]); err == nil && k != nil; k, _, err = milestoneCursor.Prev() {
-		if err = milestoneCursor.DeleteCurrent(); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return existBlocksToPrune, nil
 }
 
 func TruncateCanonicalChain(ctx context.Context, db kv.RwTx, from uint64) error {
@@ -1584,4 +1467,19 @@ func ReadDBSchemaVersion(tx kv.Tx) (major, minor, patch uint32, ok bool, err err
 	minor = binary.BigEndian.Uint32(existingVersion[4:])
 	patch = binary.BigEndian.Uint32(existingVersion[8:])
 	return major, minor, patch, true, nil
+}
+
+func WriteLastNewBlockSeen(tx kv.RwTx, blockNum uint64) error {
+	return tx.Put(kv.SyncStageProgress, kv.LastNewBlockSeen, dbutils.EncodeBlockNumber(blockNum))
+}
+
+func ReadLastNewBlockSeen(tx kv.Tx) (uint64, error) {
+	v, err := tx.GetOne(kv.SyncStageProgress, kv.LastNewBlockSeen)
+	if err != nil {
+		return 0, err
+	}
+	if len(v) == 0 {
+		return 0, nil
+	}
+	return dbutils.DecodeBlockNumber(v)
 }

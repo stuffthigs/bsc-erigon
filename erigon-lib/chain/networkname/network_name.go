@@ -17,6 +17,7 @@ const (
 	ChapelChainName         = "chapel"
 	RialtoChainName         = "rialto"
 	DefaultChainName        = "default"
+	Test                    = "test"
 )
 
 var All = []string{
@@ -32,4 +33,5 @@ var All = []string{
 	ChiadoChainName,
 	BSCChainName,
 	ChapelChainName,
+	Test,
 }

@@ -359,7 +359,7 @@ func makeBenchBlock() *Block {
 			Extra:      []byte("benchmark uncle"),
 		}
 	}
-	return NewBlock(header, txs, uncles, receipts, nil /* withdrawals */)
+	return NewBlock(header, txs, uncles, receipts, nil /* withdrawals */, nil /*requests*/)
 }
 
 func TestCanEncodeAndDecodeRawBody(t *testing.T) {
@@ -507,7 +507,7 @@ func TestWithdrawalsEncoding(t *testing.T) {
 		Amount:    5_000_000_000,
 	}
 
-	block := NewBlock(&header, nil, nil, nil, withdrawals)
+	block := NewBlock(&header, nil, nil, nil, withdrawals, nil /*requests*/)
 	_ = block.Size()
 
 	encoded, err := rlp.EncodeToBytes(block)
@@ -519,7 +519,7 @@ func TestWithdrawalsEncoding(t *testing.T) {
 	assert.Equal(t, block, &decoded)
 
 	// Now test with empty withdrawals
-	block2 := NewBlock(&header, nil, nil, nil, []*Withdrawal{})
+	block2 := NewBlock(&header, nil, nil, nil, []*Withdrawal{}, nil /*requests*/)
 	_ = block2.Size()
 
 	encoded2, err := rlp.EncodeToBytes(block2)

@@ -19,7 +19,7 @@ import (
 
 	"github.com/ledgerwatch/erigon-lib/diagnostics"
 	"github.com/ledgerwatch/erigon-lib/gointerfaces"
-	sentinelrpc "github.com/ledgerwatch/erigon-lib/gointerfaces/sentinel"
+	sentinelrpc "github.com/ledgerwatch/erigon-lib/gointerfaces/sentinelproto"
 	"github.com/ledgerwatch/erigon/cl/cltypes"
 	"github.com/ledgerwatch/erigon/cl/utils"
 	"github.com/ledgerwatch/log/v3"
@@ -96,7 +96,8 @@ func (s *SentinelServer) PublishGossip(_ context.Context, msg *sentinelrpc.Gossi
 		gossip.TopicNameVoluntaryExit,
 		gossip.TopicNameProposerSlashing,
 		gossip.TopicNameSyncCommitteeContributionAndProof,
-		gossip.TopicNameAttesterSlashing:
+		gossip.TopicNameAttesterSlashing,
+		gossip.TopicNameBlsToExecutionChange:
 		subscription = manager.GetMatchingSubscription(msg.Name)
 	default:
 		// check subnets

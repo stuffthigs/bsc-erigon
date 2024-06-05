@@ -20,15 +20,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
 	"sort"
+
+	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
 
 	"github.com/google/btree"
 	"github.com/holiman/uint256"
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/length"
 	"github.com/ledgerwatch/erigon-lib/kv"
-	"github.com/ledgerwatch/erigon-lib/kv/kvcfg"
 	"github.com/ledgerwatch/log/v3"
 
 	"github.com/ledgerwatch/erigon/core/state/historyv2read"
@@ -51,21 +51,15 @@ type PlainState struct {
 	accChangesC, storageChangesC kv.CursorDupSort
 	tx                           kv.Tx
 	blockNr                      uint64
-	blockTime                    uint64
 	storage                      map[libcommon.Address]*btree.BTree
 	trace                        bool
 	systemContractLookup         map[libcommon.Address][]libcommon.CodeRecord
 }
 
-func NewPlainState(tx kv.Tx, blockNr uint64, blockTime uint64, systemContractLookup map[libcommon.Address][]libcommon.CodeRecord) *PlainState {
-	histV3, _ := kvcfg.HistoryV3.Enabled(tx)
-	if histV3 {
-		panic("Please use HistoryStateReaderV3 with HistoryV3")
-	}
+func NewPlainState(tx kv.Tx, blockNr uint64, systemContractLookup map[libcommon.Address][]libcommon.CodeRecord) *PlainState {
 	ps := &PlainState{
 		tx:                   tx,
 		blockNr:              blockNr,
-		blockTime:            blockTime,
 		storage:              make(map[libcommon.Address]*btree.BTree),
 		systemContractLookup: systemContractLookup,
 	}
@@ -80,6 +74,13 @@ func NewPlainState(tx kv.Tx, blockNr uint64, blockTime uint64, systemContractLoo
 	ps.accChangesC = c3
 	ps.storageChangesC = c4
 	return ps
+}
+
+func (s *PlainState) Close() {
+	s.accHistoryC.Close()
+	s.storageHistoryC.Close()
+	s.accChangesC.Close()
+	s.accHistoryC.Close()
 }
 
 func (s *PlainState) SetTrace(trace bool) {
@@ -189,7 +190,7 @@ func (s *PlainState) ReadAccountData(address libcommon.Address) (*accounts.Accou
 		//restore codehash
 		if records, ok := s.systemContractLookup[address]; ok {
 			p := sort.Search(len(records), func(i int) bool {
-				return records[i].BlockNumber > s.blockNr || records[i].BlockTime > s.blockTime
+				return records[i].BlockNumber > s.blockNr
 			})
 			a.CodeHash = records[p-1].CodeHash
 		} else if a.Incarnation > 0 && a.IsEmptyCodeHash() {

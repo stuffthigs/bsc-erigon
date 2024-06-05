@@ -39,7 +39,6 @@ type BodiesCfg struct {
 	chanConfig      chain.Config
 	blockReader     services.FullBlockReader
 	blockWriter     *blockio.BlockWriter
-	historyV3       bool
 	loopBreakCheck  func(int) bool
 }
 
@@ -48,26 +47,16 @@ func StageBodiesCfg(db kv.RwDB, blobStore services.BlobStorage, bd *bodydownload
 	blockPropagator adapter.BlockPropagator, timeout int,
 	chanConfig chain.Config,
 	blockReader services.FullBlockReader,
-	historyV3 bool,
 	blockWriter *blockio.BlockWriter,
 	loopBreakCheck func(int) bool) BodiesCfg {
 	return BodiesCfg{
 		db: db, bd: bd, blobStore: blobStore, bodyReqSend: bodyReqSend, penalise: penalise, blockPropagator: blockPropagator,
 		timeout: timeout, chanConfig: chanConfig, blockReader: blockReader,
-		historyV3: historyV3, blockWriter: blockWriter, loopBreakCheck: loopBreakCheck}
+		blockWriter: blockWriter, loopBreakCheck: loopBreakCheck}
 }
 
 // BodiesForward progresses Bodies stage in the forward direction
-func BodiesForward(
-	s *StageState,
-	u Unwinder,
-	ctx context.Context,
-	tx kv.RwTx,
-	cfg BodiesCfg,
-	test bool, // Set to true in tests, allows the stage to fail rather than wait indefinitely
-	firstCycle bool,
-	logger log.Logger,
-) error {
+func BodiesForward(s *StageState, u Unwinder, ctx context.Context, tx kv.RwTx, cfg BodiesCfg, test bool, logger log.Logger) error {
 	var doUpdate bool
 
 	startTime := time.Now()
@@ -237,7 +226,9 @@ func BodiesForward(
 				err = cfg.bd.Engine.VerifyUncles(cr, header, rawBody.Uncles)
 				if err != nil {
 					logger.Error(fmt.Sprintf("[%s] Uncle verification failed", logPrefix), "number", blockHeight, "hash", header.Hash().String(), "err", err)
-					u.UnwindTo(blockHeight-1, BadBlock(header.Hash(), fmt.Errorf("Uncle verification failed: %w", err)))
+					if err := u.UnwindTo(blockHeight-1, BadBlock(header.Hash(), fmt.Errorf("Uncle verification failed: %w", err)), tx); err != nil {
+						return false, err
+					}
 					return true, nil
 				}
 
@@ -254,8 +245,7 @@ func BodiesForward(
 				if err != nil {
 					return false, fmt.Errorf("WriteRawBodyIfNotExists: %w", err)
 				}
-
-				if cfg.historyV3 && ok {
+				if ok {
 					if err := rawdb.AppendCanonicalTxNums(tx, blockHeight); err != nil {
 						return false, err
 					}
@@ -300,6 +290,7 @@ func BodiesForward(
 			stopped = true
 			return true, nil
 		}
+		firstCycle := s.CurrentSyncCycle.IsInitialCycle
 		if !firstCycle && s.BlockNumber > 0 && noProgressCount >= 5 {
 			return true, nil
 		}
@@ -415,7 +406,7 @@ func logWritingBodies(logPrefix string, committed, headerProgress uint64, logger
 		Sys:         m.Sys,
 	})
 
-	logger.Info(fmt.Sprintf("[%s] Writing block bodies", logPrefix),
+	logger.Info(fmt.Sprintf("[%s] Writing bodies", logPrefix),
 		"block_num", committed,
 		"remaining", remaining,
 		"alloc", libcommon.ByteCount(m.Alloc),
