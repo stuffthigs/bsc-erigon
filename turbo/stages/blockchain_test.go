@@ -1103,15 +1103,15 @@ func TestDoubleAccountRemoval(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, st.Exist(theAddr), "Contract should've been removed")
 
-	st = state.New(m.NewHistoryStateReader(1, 0, tx))
+	st = state.New(m.NewHistoryStateReader(1, tx))
 	assert.NoError(t, err)
 	assert.False(t, st.Exist(theAddr), "Contract should not exist at block #0")
 
-	st = state.New(m.NewHistoryStateReader(2, 0, tx))
+	st = state.New(m.NewHistoryStateReader(2, tx))
 	assert.NoError(t, err)
 	assert.True(t, st.Exist(theAddr), "Contract should exist at block #1")
 
-	st = state.New(m.NewHistoryStateReader(3, 0, tx))
+	st = state.New(m.NewHistoryStateReader(3, tx))
 	assert.NoError(t, err)
 	assert.True(t, st.Exist(theAddr), "Contract should exist at block #2")
 }
@@ -1483,7 +1483,7 @@ func TestDeleteRecreateSlots(t *testing.T) {
 		t.Fatalf("failed to insert into chain: %v", err)
 	}
 	err = m.DB.View(m.Ctx, func(tx kv.Tx) error {
-		statedb := state.New(m.NewHistoryStateReader(2, 0, tx))
+		statedb := state.New(m.NewHistoryStateReader(2, tx))
 
 		// If all is correct, then slot 1 and 2 are zero
 		key1 := libcommon.HexToHash("01")
@@ -1602,7 +1602,7 @@ func TestCVE2020_26265(t *testing.T) {
 		t.Fatalf("failed to insert into chain: %v", err)
 	}
 	err = m.DB.View(m.Ctx, func(tx kv.Tx) error {
-		reader := m.NewHistoryStateReader(2, 0, tx)
+		reader := m.NewHistoryStateReader(2, tx)
 		statedb := state.New(reader)
 
 		got := statedb.GetBalance(aa)
@@ -1670,7 +1670,7 @@ func TestDeleteRecreateAccount(t *testing.T) {
 		t.Fatalf("failed to insert into chain: %v", err)
 	}
 	err = m.DB.View(m.Ctx, func(tx kv.Tx) error {
-		statedb := state.New(m.NewHistoryStateReader(2, 0, tx))
+		statedb := state.New(m.NewHistoryStateReader(2, tx))
 
 		// If all is correct, then both slots are zero
 		key1 := libcommon.HexToHash("01")
@@ -1984,7 +1984,7 @@ func TestInitThenFailCreateContract(t *testing.T) {
 	err = m.DB.View(m.Ctx, func(tx kv.Tx) error {
 
 		// Import the canonical chain
-		statedb := state.New(m.NewHistoryStateReader(2, 0, tx))
+		statedb := state.New(m.NewHistoryStateReader(2, tx))
 		if got, exp := statedb.GetBalance(aa), uint64(100000); got.Uint64() != exp {
 			t.Fatalf("Genesis err, got %v exp %v", got, exp)
 		}
@@ -1994,7 +1994,7 @@ func TestInitThenFailCreateContract(t *testing.T) {
 			if err := m.InsertChain(chain.Slice(0, 1)); err != nil {
 				t.Fatalf("block %d: failed to insert into chain: %v", block.NumberU64(), err)
 			}
-			statedb = state.New(m.NewHistoryStateReader(1, 0, tx))
+			statedb = state.New(m.NewHistoryStateReader(1, tx))
 			if got, exp := statedb.GetBalance(aa), uint64(100000); got.Uint64() != exp {
 				t.Fatalf("block %d: got %v exp %v", block.NumberU64(), got, exp)
 			}
@@ -2192,7 +2192,7 @@ func TestEIP1559Transition(t *testing.T) {
 	}
 
 	err = m.DB.View(m.Ctx, func(tx kv.Tx) error {
-		statedb := state.New(m.NewHistoryStateReader(1, 0, tx))
+		statedb := state.New(m.NewHistoryStateReader(1, tx))
 
 		// 3: Ensure that miner received only the tx's tip.
 		actual := statedb.GetBalance(block.Coinbase())
@@ -2233,7 +2233,7 @@ func TestEIP1559Transition(t *testing.T) {
 
 	block = chain.Blocks[0]
 	err = m.DB.View(m.Ctx, func(tx kv.Tx) error {
-		statedb := state.New(m.NewHistoryStateReader(1, 0, tx))
+		statedb := state.New(m.NewHistoryStateReader(1, tx))
 		effectiveTip := block.Transactions()[0].GetPrice().Uint64() - block.BaseFee().Uint64()
 
 		// 6+5: Ensure that miner received only the tx's effective tip.
