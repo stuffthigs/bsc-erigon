@@ -167,7 +167,7 @@ func ExecuteBlockEphemerallyForBSC(
 		syscall := func(contract libcommon.Address, data []byte) ([]byte, error) {
 			return SysCallContract(contract, data, chainConfig, ibs, header, engine, false /* constCall */)
 		}
-		outTxs, outReceipts, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), block.Requests(), chainReader, syscall, logger)
+		outTxs, outReceipts, _, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), block.Requests(), chainReader, syscall, logger)
 		if err != nil {
 			return nil, err
 		}

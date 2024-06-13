@@ -461,11 +461,7 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 		st.state.AddBalance(consensus.SystemAddress, amount)
 		// add extra blob fee reward
 		if rules.IsCancun {
-			blobGasPrice, err := misc.GetBlobGasPrice(st.evm.ChainConfig(), *st.evm.Context.ExcessBlobGas)
-			if err != nil {
-				return nil, err
-			}
-			blobGasVal, overflow := new(uint256.Int).MulOverflow(blobGasPrice, new(uint256.Int).SetUint64(st.msg.BlobGas()))
+			blobGasVal, overflow := new(uint256.Int).MulOverflow(st.evm.Context.BlobBaseFee, new(uint256.Int).SetUint64(st.msg.BlobGas()))
 			if overflow {
 				return nil, fmt.Errorf("%w: overflow converting blob gas: %v", ErrInsufficientFunds, blobGasVal)
 			}
