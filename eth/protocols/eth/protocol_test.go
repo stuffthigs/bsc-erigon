@@ -292,11 +292,11 @@ func TestNewBlockPacket_EncodeDecode(t *testing.T) {
 			TD:    new(big.Int).SetUint64(1),
 		}},
 		{msg: NewBlockPacket{
-			Block: types.NewBlock(header, []types.Transaction{dynamicTx}, nil, nil, types.Withdrawals{}),
+			Block: types.NewBlock(header, []types.Transaction{dynamicTx}, nil, nil, types.Withdrawals{}, nil),
 			TD:    new(big.Int).SetUint64(1),
 		}},
 		{msg: NewBlockPacket{
-			Block: types.NewBlock(header, []types.Transaction{dynamicTx, blobTx}, nil, nil, types.Withdrawals{}),
+			Block: types.NewBlock(header, []types.Transaction{dynamicTx, blobTx}, nil, nil, types.Withdrawals{}, nil),
 			TD:    new(big.Int).SetUint64(1),
 			Sidecars: types.BlobSidecars{&types.BlobSidecar{
 				BlobTxSidecar: txSidecar,
