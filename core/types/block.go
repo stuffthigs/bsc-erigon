@@ -595,7 +595,7 @@ type Body struct {
 	Uncles       []*Header
 	Withdrawals  []*Withdrawal
 	Sidecars     []*BlobSidecar
-	Requests     []*Request
+	Requests     Requests
 }
 
 // RawBody is semi-parsed variant of Body, where transactions are still unparsed RLP strings
@@ -606,7 +606,7 @@ type RawBody struct {
 	Uncles       []*Header
 	Withdrawals  []*Withdrawal
 	Sidecars     []*BlobSidecar
-	Requests     []*Request
+	Requests     Requests
 }
 
 func (r *RawBody) CleanSidecars() {
@@ -618,7 +618,7 @@ type BodyForStorage struct {
 	TxAmount    uint32
 	Uncles      []*Header
 	Withdrawals []*Withdrawal
-	Requests    []*Request
+	Requests    Requests
 }
 
 // Alternative representation of the Block.
@@ -651,7 +651,7 @@ type Block struct {
 	uncles       []*Header
 	transactions Transactions
 	withdrawals  []*Withdrawal
-	requests     []*Request
+	requests     Requests
 
 	// caches
 	hash atomic.Value
@@ -958,7 +958,7 @@ func (bb *Body) DecodeRLP(s *rlp.Stream) error {
 // The values of TxHash, UncleHash, ReceiptHash, Bloom, and WithdrawalHash
 // in the header are ignored and set to the values derived from
 // the given txs, uncles, receipts, and withdrawals.
-func NewBlock(header *Header, txs []Transaction, uncles []*Header, receipts []*Receipt, withdrawals []*Withdrawal, requests []*Request) *Block {
+func NewBlock(header *Header, txs []Transaction, uncles []*Header, receipts []*Receipt, withdrawals []*Withdrawal, requests Requests) *Block {
 	b := &Block{header: CopyHeader(header)}
 
 	// TODO: panic if len(txs) != len(receipts)
@@ -1011,12 +1011,12 @@ func NewBlock(header *Header, txs []Transaction, uncles []*Header, receipts []*R
 		b.header.RequestsRoot = &EmptyRootHash
 		b.requests = make(Requests, len(requests))
 	} else {
-		h := DeriveSha(Requests(requests))
+		h := DeriveSha(requests)
 		b.header.RequestsRoot = &h
 		b.requests = make(Requests, len(requests))
 		for i, r := range requests {
-			rCopy := *r
-			b.requests[i] = &rCopy
+			rCopy := r.copy()
+			b.requests[i] = rCopy
 		}
 	}
 
@@ -1025,7 +1025,7 @@ func NewBlock(header *Header, txs []Transaction, uncles []*Header, receipts []*R
 
 // NewBlockFromStorage like NewBlock but used to create Block object when read it from DB
 // in this case no reason to copy parts, or re-calculate headers fields - they are all stored in DB
-func NewBlockFromStorage(hash libcommon.Hash, header *Header, txs []Transaction, uncles []*Header, withdrawals []*Withdrawal, requests []*Request) *Block {
+func NewBlockFromStorage(hash libcommon.Hash, header *Header, txs []Transaction, uncles []*Header, withdrawals []*Withdrawal, requests Requests) *Block {
 	b := &Block{header: header, transactions: txs, uncles: uncles, withdrawals: withdrawals, requests: requests}
 	b.hash.Store(hash)
 	return b
@@ -1324,6 +1324,7 @@ func (b *Block) HashCheck() error {
 	if b.Withdrawals() == nil {
 		return errors.New("body missing Withdrawals")
 	}
+
 	if hash := DeriveSha(b.Withdrawals()); hash != *b.WithdrawalsHash() {
 		return fmt.Errorf("block has invalid withdrawals hash: have %x, exp: %x", hash, b.WithdrawalsHash())
 	}
@@ -1334,9 +1335,7 @@ func (b *Block) HashCheck() error {
 		}
 		return nil
 	}
-	if b.Requests() == nil {
-		return errors.New("body missing Requests")
-	}
+
 	if hash := DeriveSha(b.Requests()); hash != *b.RequestsRoot() {
 		return fmt.Errorf("block has invalid requests root: have %x, exp: %x", hash, b.RequestsRoot())
 	}
@@ -1397,12 +1396,11 @@ func (b *Block) Copy() *Block {
 		}
 	}
 
-	var requests []*Request
+	var requests []Request
 	if b.requests != nil {
-		requests = make([]*Request, 0, len(b.requests))
+		requests = make([]Request, 0, len(b.requests))
 		for _, request := range b.requests {
-			rCopy := *request
-			requests = append(requests, &rCopy)
+			requests = append(requests, request.copy())
 		}
 	}
 
@@ -1565,22 +1563,8 @@ func decodeWithdrawals(appendList *[]*Withdrawal, s *rlp.Stream) error {
 	return checkErrListEnd(s, err)
 }
 
-func decodeRequests(appendList *[]*Request, s *rlp.Stream) error {
-	var err error
-	if _, err = s.List(); err != nil {
-		if errors.Is(err, rlp.EOL) {
-			*appendList = nil
-			return nil
-		}
-		return fmt.Errorf("read requests: %v", err)
-	}
-	for err == nil {
-		var r Request
-		if err = r.DecodeRLP(s); err != nil {
-			break
-		}
-		*appendList = append(*appendList, &r)
-	}
+func decodeRequests(r *Requests, s *rlp.Stream) error {
+	err := r.DecodeRLP(s)
 	return checkErrListEnd(s, err)
 }
 

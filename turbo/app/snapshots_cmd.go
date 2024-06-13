@@ -798,21 +798,23 @@ func doRetireCommand(cliCtx *cli.Context) error {
 	}); err != nil {
 		return err
 	}
-	existBlocksToPrune := true
-	for existBlocksToPrune { // prune happens by small steps, so need many runs
+	deletedBlocks := math.MaxInt // To pass the first iteration
+	allDeletedBlocks := 0
+	for deletedBlocks > 0 { // prune happens by small steps, so need many runs
 		err = db.UpdateNosync(ctx, func(tx kv.RwTx) error {
-			if existBlocksToPrune, err = br.PruneAncientBlocks(tx, 100); err != nil {
+			if deletedBlocks, err = br.PruneAncientBlocks(tx, 100); err != nil {
 				return err
 			}
-
 			return nil
 		})
 		if err != nil {
 			return err
 		}
+
+		allDeletedBlocks += deletedBlocks
 	}
 
-	logger.Info("Pruning has ended")
+	logger.Info("Pruning has ended", "deleted blocks", allDeletedBlocks)
 
 	db, err = temporal.New(db, agg)
 	if err != nil {
@@ -1064,7 +1066,7 @@ func openAgg(ctx context.Context, dirs datadir.Dirs, chainDB kv.RwDB, logger log
 	if err != nil {
 		panic(err)
 	}
-	if err = agg.OpenFolder(true); err != nil {
+	if err = agg.OpenFolder(); err != nil {
 		panic(err)
 	}
 	agg.SetCompressWorkers(estimate.CompressSnapshot.Workers())

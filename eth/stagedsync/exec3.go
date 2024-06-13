@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/ledgerwatch/erigon/eth/ethconfig/estimate"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,7 +43,6 @@ import (
 	"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
-	"github.com/ledgerwatch/erigon/eth/ethconfig/estimate"
 	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
 	"github.com/ledgerwatch/erigon/turbo/services"
 	"github.com/ledgerwatch/erigon/turbo/shards"
@@ -51,6 +51,7 @@ import (
 var execStepsInDB = metrics.NewGauge(`exec_steps_in_db`) //nolint
 var execRepeats = metrics.NewCounter(`exec_repeats`)     //nolint
 var execTriggers = metrics.NewCounter(`exec_triggers`)   //nolint
+const changesetBlockRange = 1_000                        // Generate changeset only if execution of blocks <= changesetBlockRange
 
 func NewProgress(prevOutputBlockNum, commitThreshold uint64, workersCount int, logPrefix string, logger log.Logger) *Progress {
 	return &Progress{prevTime: time.Now(), prevOutputBlockNum: prevOutputBlockNum, commitThreshold: commitThreshold, workersCount: workersCount, logPrefix: logPrefix, logger: logger}
@@ -170,6 +171,19 @@ func ExecV3(ctx context.Context,
 			}()
 		}
 	}
+
+	if initialCycle {
+		agg.SetCollateAndBuildWorkers(min(2, estimate.StateV3Collate.Workers()))
+		agg.SetCompressWorkers(estimate.CompressSnapshot.Workers())
+		//if blockNum < cfg.blockReader.FrozenBlocks() {
+		//defer agg.DiscardHistory(kv.CommitmentDomain).EnableHistory(kv.CommitmentDomain)
+		//defer agg.LimitRecentHistoryWithoutFiles(0).LimitRecentHistoryWithoutFiles(agg.StepSize() / 10)
+		//}
+	} else {
+		agg.SetCompressWorkers(1)
+		agg.SetCollateAndBuildWorkers(1)
+	}
+
 	var err error
 	inMemExec := txc.Doms != nil
 	var doms *state2.SharedDomains
@@ -279,23 +293,18 @@ func ExecV3(ctx context.Context,
 		}
 	}
 
+	ts := time.Duration(0)
 	blockNum = doms.BlockNum()
 	outputTxNum.Store(doms.TxNum())
+
+	shouldGenerateChangesets := maxBlockNum-blockNum <= changesetBlockRange
+	if blockNum < cfg.blockReader.FrozenBlocks() {
+		shouldGenerateChangesets = false
+	}
+
 	if maxBlockNum-blockNum > 16 {
 		log.Info(fmt.Sprintf("[%s] starting", execStage.LogPrefix()),
 			"from", blockNum, "to", maxBlockNum, "fromTxNum", doms.TxNum(), "offsetFromBlockBeginning", offsetFromBlockBeginning, "initialCycle", initialCycle, "useExternalTx", useExternalTx)
-	}
-
-	if initialCycle {
-		agg.SetCollateAndBuildWorkers(min(2, estimate.StateV3Collate.Workers()))
-		agg.SetCompressWorkers(estimate.CompressSnapshot.Workers())
-		if blockNum < cfg.blockReader.FrozenBlocks() {
-			defer agg.DiscardHistory(kv.CommitmentDomain).EnableHistory(kv.CommitmentDomain)
-			defer agg.LimitRecentHistoryWithoutFiles(0).LimitRecentHistoryWithoutFiles(agg.StepSize() / 10)
-		}
-	} else {
-		agg.SetCompressWorkers(1)
-		agg.SetCollateAndBuildWorkers(1)
 	}
 
 	if blocksFreezeCfg.Produce {
@@ -612,6 +621,10 @@ func ExecV3(ctx context.Context,
 	var b *types.Block
 Loop:
 	for ; blockNum <= maxBlockNum; blockNum++ {
+		changeset := &state2.StateChangeSet{}
+		if shouldGenerateChangesets && blockNum > 0 {
+			doms.SetChangesetAccumulator(changeset)
+		}
 		//time.Sleep(50 * time.Microsecond)
 		if !parallel {
 			select {
@@ -643,7 +656,7 @@ Loop:
 			defer getHashFnMute.Unlock()
 			return f(n)
 		}
-		blockContext := core.NewEVMBlockContext(header, getHashFn, engine, nil /* author */)
+		blockContext := core.NewEVMBlockContext(header, getHashFn, engine, nil /* author */, chainConfig)
 		if parallel {
 			select {
 			case err := <-rwLoopErrCh:
@@ -688,6 +701,7 @@ Loop:
 		// So we skip that check for the first block, if we find half-executed data.
 		skipPostEvaluation := false
 		var usedGas, blobGasUsed uint64
+
 		for txIndex := -1; txIndex <= len(txs); txIndex++ {
 			// Do not oversend, wait for the result heap to go under certain size
 			txTask := &state.TxTask{
@@ -838,6 +852,19 @@ Loop:
 			stageProgress = blockNum
 			inputTxNum++
 		}
+		if shouldGenerateChangesets {
+			aggTx := applyTx.(state2.HasAggTx).AggTx().(*state2.AggregatorRoTx)
+			aggTx.RestrictSubsetFileDeletions(true)
+			start := time.Now()
+			if _, err := doms.ComputeCommitment(ctx, true, blockNum, execStage.LogPrefix()); err != nil {
+				return err
+			}
+			ts += time.Since(start)
+			aggTx.RestrictSubsetFileDeletions(false)
+			doms.SavePastChangesetAccumulator(b.Hash(), blockNum, changeset)
+			doms.SetChangesetAccumulator(nil)
+		}
+
 		if offsetFromBlockBeginning > 0 {
 			// after history execution no offset will be required
 			offsetFromBlockBeginning = 0
@@ -874,7 +901,8 @@ Loop:
 				} else if !ok {
 					break Loop
 				}
-				t1 = time.Since(tt)
+
+				t1 = time.Since(tt) + ts
 
 				tt = time.Now()
 				if _, err := applyTx.(state2.HasAggTx).AggTx().(*state2.AggregatorRoTx).PruneSmallBatches(ctx, 10*time.Hour, applyTx); err != nil {
@@ -1446,7 +1474,7 @@ func reconstituteStep(last bool,
 				defer getHashFnMute.Unlock()
 				return f(n)
 			}
-			blockContext := core.NewEVMBlockContext(header, getHashFn, engine, nil /* author */)
+			blockContext := core.NewEVMBlockContext(header, getHashFn, engine, nil /* author */, chainConfig)
 			rules := chainConfig.Rules(bn, b.Time())
 
 			for txIndex := -1; txIndex <= len(txs); txIndex++ {
