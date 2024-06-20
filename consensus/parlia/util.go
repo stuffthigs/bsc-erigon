@@ -5,8 +5,8 @@ import (
 
 	"github.com/ledgerwatch/erigon-lib/chain"
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
+	"github.com/ledgerwatch/erigon-lib/log/v3"
 	"github.com/ledgerwatch/erigon/core/types"
-	"github.com/ledgerwatch/log/v3"
 )
 
 func backOffTime(snap *Snapshot, header *types.Header, val libcommon.Address, chainConfig *chain.Config) uint64 {
