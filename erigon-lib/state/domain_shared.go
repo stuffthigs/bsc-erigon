@@ -13,9 +13,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/ledgerwatch/erigon-lib/common/cryptozerocopy"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/sha3"
+
+	"github.com/ledgerwatch/erigon-lib/common/cryptozerocopy"
+	"github.com/ledgerwatch/erigon-lib/log/v3"
 
 	btree2 "github.com/tidwall/btree"
 
@@ -28,7 +30,6 @@ import (
 	"github.com/ledgerwatch/erigon-lib/kv/order"
 	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
 	"github.com/ledgerwatch/erigon-lib/types"
-	"github.com/ledgerwatch/log/v3"
 )
 
 var ErrBehindCommitment = fmt.Errorf("behind commitment")
@@ -80,8 +81,9 @@ type SharedDomains struct {
 	domains [kv.DomainLen]map[string]dataWithPrevStep
 	storage *btree2.Map[string, dataWithPrevStep]
 
-	dWriter   [kv.DomainLen]*domainBufferedWriter
-	iiWriters [kv.StandaloneIdxLen]*invertedIndexBufferedWriter
+	domainWriters    [kv.DomainLen]*domainBufferedWriter
+	iiWriters        [kv.StandaloneIdxLen]*invertedIndexBufferedWriter
+	appendableWriter [kv.AppendableLen]*appendableBufferedWriter
 
 	currentChangesAccumulator *StateChangeSet
 	pastChangesAccumulator    map[string]*StateChangeSet
@@ -108,7 +110,15 @@ func NewSharedDomains(tx kv.Tx, logger log.Logger) (*SharedDomains, error) {
 
 	for id, d := range sd.aggTx.d {
 		sd.domains[id] = map[string]dataWithPrevStep{}
-		sd.dWriter[id] = d.NewWriter()
+		sd.domainWriters[id] = d.NewWriter()
+	}
+
+	for id, a := range sd.aggTx.appendable {
+		sd.appendableWriter[id] = a.NewWriter()
+	}
+
+	for id, a := range sd.aggTx.appendable {
+		sd.appendableWriter[id] = a.NewWriter()
 	}
 
 	sd.SetTxNum(0)
@@ -122,11 +132,11 @@ func NewSharedDomains(tx kv.Tx, logger log.Logger) (*SharedDomains, error) {
 
 func (sd *SharedDomains) SetChangesetAccumulator(acc *StateChangeSet) {
 	sd.currentChangesAccumulator = acc
-	for idx := range sd.dWriter {
+	for idx := range sd.domainWriters {
 		if sd.currentChangesAccumulator == nil {
-			sd.dWriter[idx].diff = nil
+			sd.domainWriters[idx].diff = nil
 		} else {
-			sd.dWriter[idx].diff = &sd.currentChangesAccumulator.Diffs[idx]
+			sd.domainWriters[idx].diff = &sd.currentChangesAccumulator.Diffs[idx]
 		}
 	}
 }
@@ -139,6 +149,21 @@ func (sd *SharedDomains) SavePastChangesetAccumulator(blockHash common.Hash, blo
 	binary.BigEndian.PutUint64(key[:8], blockNumber)
 	copy(key[8:], blockHash[:])
 	sd.pastChangesAccumulator[string(key[:])] = acc
+}
+
+func (sd *SharedDomains) GetDiffset(tx kv.RwTx, blockHash common.Hash, blockNumber uint64) ([kv.DomainLen][]DomainEntryDiff, bool, error) {
+	var key [40]byte
+	binary.BigEndian.PutUint64(key[:8], blockNumber)
+	copy(key[8:], blockHash[:])
+	if changeset, ok := sd.pastChangesAccumulator[string(key[:])]; ok {
+		return [kv.DomainLen][]DomainEntryDiff{
+			changeset.Diffs[kv.AccountsDomain].GetDiffSet(),
+			changeset.Diffs[kv.StorageDomain].GetDiffSet(),
+			changeset.Diffs[kv.CodeDomain].GetDiffSet(),
+			changeset.Diffs[kv.CommitmentDomain].GetDiffSet(),
+		}, true, nil
+	}
+	return ReadDiffSet(tx, blockNumber, blockHash)
 }
 
 func (sd *SharedDomains) AggTx() interface{} { return sd.aggTx }
@@ -160,19 +185,18 @@ func (sd *SharedDomains) Unwind(ctx context.Context, rwTx kv.RwTx, blockUnwindTo
 
 	withWarmup := false
 	for idx, d := range sd.aggTx.d {
-		txUnwindTo := txUnwindTo
-		if changeset != nil {
-			if err := d.Unwind(ctx, rwTx, step, txUnwindTo, changeset[idx]); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := d.Unwind(ctx, rwTx, step, txUnwindTo, nil); err != nil {
+		if err := d.Unwind(ctx, rwTx, step, txUnwindTo, changeset[idx]); err != nil {
 			return err
 		}
 	}
 	for _, ii := range sd.aggTx.iis {
-		if _, err := ii.Prune(ctx, rwTx, txUnwindTo, math.MaxUint64, math.MaxUint64, logEvery, true, withWarmup, nil); err != nil {
+		if err := ii.Unwind(ctx, rwTx, txUnwindTo, math.MaxUint64, math.MaxUint64, logEvery, true, withWarmup, nil); err != nil {
+			return err
+		}
+	}
+
+	for _, ap := range sd.aggTx.appendable {
+		if err := ap.Unwind(ctx, rwTx, txUnwindTo, math.MaxUint64, math.MaxUint64, logEvery, true, withWarmup, nil); err != nil {
 			return err
 		}
 	}
@@ -483,7 +507,7 @@ func (sd *SharedDomains) updateAccountData(addr []byte, account, prevAccount []b
 	addrS := string(addr)
 	sd.sdCtx.TouchKey(kv.AccountsDomain, addrS, account)
 	sd.put(kv.AccountsDomain, addrS, account)
-	return sd.dWriter[kv.AccountsDomain].PutWithPrev(addr, nil, account, prevAccount, prevStep)
+	return sd.domainWriters[kv.AccountsDomain].PutWithPrev(addr, nil, account, prevAccount, prevStep)
 }
 
 func (sd *SharedDomains) updateAccountCode(addr, code, prevCode []byte, prevStep uint64) error {
@@ -491,14 +515,14 @@ func (sd *SharedDomains) updateAccountCode(addr, code, prevCode []byte, prevStep
 	sd.sdCtx.TouchKey(kv.CodeDomain, addrS, code)
 	sd.put(kv.CodeDomain, addrS, code)
 	if len(code) == 0 {
-		return sd.dWriter[kv.CodeDomain].DeleteWithPrev(addr, nil, prevCode, prevStep)
+		return sd.domainWriters[kv.CodeDomain].DeleteWithPrev(addr, nil, prevCode, prevStep)
 	}
-	return sd.dWriter[kv.CodeDomain].PutWithPrev(addr, nil, code, prevCode, prevStep)
+	return sd.domainWriters[kv.CodeDomain].PutWithPrev(addr, nil, code, prevCode, prevStep)
 }
 
 func (sd *SharedDomains) updateCommitmentData(prefix []byte, data, prev []byte, prevStep uint64) error {
 	sd.put(kv.CommitmentDomain, string(prefix), data)
-	return sd.dWriter[kv.CommitmentDomain].PutWithPrev(prefix, nil, data, prev, prevStep)
+	return sd.domainWriters[kv.CommitmentDomain].PutWithPrev(prefix, nil, data, prev, prevStep)
 }
 
 func (sd *SharedDomains) deleteAccount(addr, prev []byte, prevStep uint64) error {
@@ -514,7 +538,7 @@ func (sd *SharedDomains) deleteAccount(addr, prev []byte, prevStep uint64) error
 
 	sd.sdCtx.TouchKey(kv.AccountsDomain, addrS, nil)
 	sd.put(kv.AccountsDomain, addrS, nil)
-	if err := sd.dWriter[kv.AccountsDomain].DeleteWithPrev(addr, nil, prev, prevStep); err != nil {
+	if err := sd.domainWriters[kv.AccountsDomain].DeleteWithPrev(addr, nil, prev, prevStep); err != nil {
 		return err
 	}
 
@@ -530,7 +554,7 @@ func (sd *SharedDomains) writeAccountStorage(addr, loc []byte, value, preVal []b
 	compositeS := string(composite)
 	sd.sdCtx.TouchKey(kv.StorageDomain, compositeS, value)
 	sd.put(kv.StorageDomain, compositeS, value)
-	return sd.dWriter[kv.StorageDomain].PutWithPrev(composite, nil, value, preVal, prevStep)
+	return sd.domainWriters[kv.StorageDomain].PutWithPrev(composite, nil, value, preVal, prevStep)
 }
 func (sd *SharedDomains) delAccountStorage(addr, loc []byte, preVal []byte, prevStep uint64) error {
 	composite := addr
@@ -541,7 +565,7 @@ func (sd *SharedDomains) delAccountStorage(addr, loc []byte, preVal []byte, prev
 	compositeS := string(composite)
 	sd.sdCtx.TouchKey(kv.StorageDomain, compositeS, nil)
 	sd.put(kv.StorageDomain, compositeS, nil)
-	return sd.dWriter[kv.StorageDomain].DeleteWithPrev(composite, nil, preVal, prevStep)
+	return sd.domainWriters[kv.StorageDomain].DeleteWithPrev(composite, nil, preVal, prevStep)
 }
 
 func (sd *SharedDomains) IndexAdd(table kv.InvertedIdx, key []byte) (err error) {
@@ -583,7 +607,7 @@ func (sd *SharedDomains) StepSize() uint64 { return sd.aggTx.a.StepSize() }
 // Requires for sd.rwTx because of commitment evaluation in shared domains if aggregationStep is reached
 func (sd *SharedDomains) SetTxNum(txNum uint64) {
 	sd.txNum = txNum
-	for _, d := range sd.dWriter {
+	for _, d := range sd.domainWriters {
 		if d != nil {
 			d.SetTxNum(txNum)
 		}
@@ -773,11 +797,14 @@ func (sd *SharedDomains) Close() {
 
 		//sd.walLock.Lock()
 		//defer sd.walLock.Unlock()
-		for _, d := range sd.dWriter {
+		for _, d := range sd.domainWriters {
 			d.close()
 		}
 		for _, iiWriter := range sd.iiWriters {
 			iiWriter.close()
+		}
+		for _, a := range sd.appendableWriter {
+			a.close()
 		}
 	}
 
@@ -798,6 +825,7 @@ func (sd *SharedDomains) Flush(ctx context.Context, tx kv.RwTx) error {
 			return err
 		}
 	}
+	sd.pastChangesAccumulator = make(map[string]*StateChangeSet)
 
 	if sd.noFlush == 0 {
 		defer mxFlushTook.ObserveDuration(time.Now())
@@ -809,7 +837,7 @@ func (sd *SharedDomains) Flush(ctx context.Context, tx kv.RwTx) error {
 			_, f, l, _ := runtime.Caller(1)
 			fmt.Printf("[SD aggTx=%d] FLUSHING at tx %d [%x], caller %s:%d\n", sd.aggTx.id, sd.TxNum(), fh, filepath.Base(f), l)
 		}
-		for _, d := range sd.dWriter {
+		for _, d := range sd.domainWriters {
 			if d != nil {
 				if err := d.Flush(ctx, tx); err != nil {
 					return err
@@ -828,13 +856,16 @@ func (sd *SharedDomains) Flush(ctx context.Context, tx kv.RwTx) error {
 			}
 		}
 
-		for _, d := range sd.dWriter {
+		for _, d := range sd.domainWriters {
 			if d != nil {
 				d.close()
 			}
 		}
 		for _, iiWriter := range sd.iiWriters {
 			iiWriter.close()
+		}
+		for _, a := range sd.appendableWriter {
+			a.close()
 		}
 	}
 	return nil
@@ -888,7 +919,7 @@ func (sd *SharedDomains) DomainPut(domain kv.Domain, k1, k2 []byte, val, prevVal
 		return sd.updateAccountCode(k1, val, prevVal, prevStep)
 	default:
 		sd.put(domain, string(append(k1, k2...)), val)
-		return sd.dWriter[domain].PutWithPrev(k1, k2, val, prevVal, prevStep)
+		return sd.domainWriters[domain].PutWithPrev(k1, k2, val, prevVal, prevStep)
 	}
 }
 
@@ -920,7 +951,7 @@ func (sd *SharedDomains) DomainDel(domain kv.Domain, k1, k2 []byte, prevVal []by
 		return sd.updateCommitmentData(k1, nil, prevVal, prevStep)
 	default:
 		sd.put(domain, string(append(k1, k2...)), nil)
-		return sd.dWriter[domain].DeleteWithPrev(k1, k2, prevVal, prevStep)
+		return sd.domainWriters[domain].DeleteWithPrev(k1, k2, prevVal, prevStep)
 	}
 }
 
@@ -961,6 +992,10 @@ func (sd *SharedDomains) DomainDelPrefix(domain kv.Domain, prefix []byte) error 
 	return nil
 }
 func (sd *SharedDomains) Tx() kv.Tx { return sd.roTx }
+
+func (sd *SharedDomains) AppendablePut(name kv.Appendable, ts uint64, v []byte) error {
+	return sd.appendableWriter[name].Append(ts, v)
+}
 
 type SharedDomainsCommitmentContext struct {
 	sd           *SharedDomains
@@ -1195,7 +1230,7 @@ func (sdc *SharedDomainsCommitmentContext) storeCommitmentState(blockNum uint64,
 		fmt.Printf("[commitment] store txn %d block %d rh %x\n", sdc.sd.txNum, blockNum, rh)
 	}
 	sdc.sd.put(kv.CommitmentDomain, string(keyCommitmentState), encodedState)
-	return sdc.sd.dWriter[kv.CommitmentDomain].PutWithPrev(keyCommitmentState, nil, encodedState, prevState, prevStep)
+	return sdc.sd.domainWriters[kv.CommitmentDomain].PutWithPrev(keyCommitmentState, nil, encodedState, prevState, prevStep)
 }
 
 func (sdc *SharedDomainsCommitmentContext) encodeCommitmentState(blockNum, txNum uint64) ([]byte, error) {
@@ -1240,47 +1275,10 @@ func (sdc *SharedDomainsCommitmentContext) LatestCommitmentState(tx kv.Tx, cd *D
 	if sdc.patriciaTrie.Variant() != commitment.VariantHexPatriciaTrie {
 		return 0, 0, nil, fmt.Errorf("state storing is only supported hex patricia trie")
 	}
-
-	// Domain storing only 1 latest commitment (for each step). Erigon can unwind behind this - it means we must look into History (instead of Domain)
-	// IdxRange: looking into DB and Files (.ef). Using `order.Desc` to find latest txNum with commitment
-	it, err := cd.ht.IdxRange(keyCommitmentState, int(untilTx), int(sinceTx)-1, order.Desc, -1, tx) //[from, to)
+	state, _, err = sdc.GetBranch(keyCommitmentState)
 	if err != nil {
-		return 0, 0, nil, fmt.Errorf("IdxRange: %w", err)
+		return 0, 0, nil, err
 	}
-	if it.HasNext() {
-		txn, err := it.Next()
-		if err != nil {
-			return 0, 0, nil, err
-		}
-		state, err = cd.GetAsOf(keyCommitmentState, txn+1, tx) //WHYYY +1 ???
-		if err != nil {
-			return 0, 0, nil, err
-		}
-		if len(state) >= 16 {
-			txNum, blockNum = _decodeTxBlockNums(state)
-			return blockNum, txNum, state, nil
-		}
-	}
-
-	// corner-case:
-	// it's normal to not have commitment.ef and commitment.v files. They are not determenistic - depend on batchSize, and not very useful.
-	// in this case `IdxRange` will be empty
-	// and can fallback to reading latest commitment from .kv file
-	if err = cd.IteratePrefix(tx, keyCommitmentState, func(key, value []byte) error {
-		if len(value) < 16 {
-			return fmt.Errorf("invalid state value size %d [%x]", len(value), value)
-		}
-
-		txn, _ := _decodeTxBlockNums(value)
-		//fmt.Printf("[commitment] seekInFiles found committed txn %d block %d\n", txn, bn)
-		if txn >= sinceTx && txn <= untilTx {
-			state = value
-		}
-		return nil
-	}); err != nil {
-		return 0, 0, nil, fmt.Errorf("failed to seek commitment, IteratePrefix: %w", err)
-	}
-
 	if len(state) < 16 {
 		return 0, 0, nil, nil
 	}

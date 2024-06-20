@@ -22,7 +22,8 @@ import (
 	"math/big"
 
 	"github.com/holiman/uint256"
-	"github.com/ledgerwatch/log/v3"
+
+	"github.com/ledgerwatch/erigon-lib/log/v3"
 
 	"github.com/ledgerwatch/erigon-lib/chain"
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
@@ -42,6 +43,12 @@ type ChainHeaderReader interface {
 
 	// CurrentHeader retrieves the current header from the local chain.
 	CurrentHeader() *types.Header
+
+	// CurrentFinalizedHeader retrieves the current finalized header from the local chain.
+	CurrentFinalizedHeader() *types.Header
+
+	// CurrentSafeHeader retrieves the current safe header from the local chain.
+	CurrentSafeHeader() *types.Header
 
 	// GetHeader retrieves a block header from the database by hash and number.
 	GetHeader(hash libcommon.Hash, number uint64) *types.Header

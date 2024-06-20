@@ -26,18 +26,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/ledgerwatch/erigon-lib/common/background"
 	"github.com/ledgerwatch/erigon-lib/common/datadir"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon-lib/kv/iter"
 	"github.com/ledgerwatch/erigon-lib/kv/mdbx"
 	"github.com/ledgerwatch/erigon-lib/kv/order"
+	"github.com/ledgerwatch/erigon-lib/log/v3"
 	"github.com/ledgerwatch/erigon-lib/recsplit"
 	"github.com/ledgerwatch/erigon-lib/recsplit/eliasfano32"
 	"github.com/ledgerwatch/erigon-lib/seg"
-	"github.com/ledgerwatch/log/v3"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func testDbAndInvertedIndex(tb testing.TB, aggStep uint64, logger log.Logger) (kv.RwDB, *InvertedIndex) {
@@ -370,7 +371,7 @@ func checkRanges(t *testing.T, db kv.RwDB, ii *InvertedIndex, txs uint64) {
 	ic := ii.BeginFilesRo()
 	defer ic.Close()
 
-	// Check the iterator ranges first without roTx
+	// Check the iterator invertedIndex first without roTx
 	for keyNum := uint64(1); keyNum <= uint64(31); keyNum++ {
 		var k [8]byte
 		binary.BigEndian.PutUint64(k[:], keyNum)
@@ -417,7 +418,7 @@ func checkRanges(t *testing.T, db kv.RwDB, ii *InvertedIndex, txs uint64) {
 			iter.ExpectEqualU64(t, expect, it)
 		})
 	}
-	// Now check ranges that require access to DB
+	// Now check invertedIndex that require access to DB
 	roTx, err := db.BeginRo(ctx)
 	require.NoError(t, err)
 	defer roTx.Rollback()

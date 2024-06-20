@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ledgerwatch/erigon-lib/chain"
-	"github.com/ledgerwatch/log/v3"
 	"io"
 	"math/big"
 	"slices"
@@ -20,6 +19,10 @@ import (
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/dbg"
 	"github.com/ledgerwatch/erigon-lib/common/metrics"
+	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
+	"github.com/ledgerwatch/erigon-lib/log/v3"
+
+	libcommon "github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/etl"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon-lib/kv/dbutils"
@@ -485,7 +488,7 @@ func (hd *HeaderDownload) UpdateRetryTime(req *HeaderRequest, currentTime time.T
 func (hd *HeaderDownload) RequestSkeleton() *HeaderRequest {
 	hd.lock.RLock()
 	defer hd.lock.RUnlock()
-	log.Debug("[downloader] Request skeleton", "anchors", len(hd.anchors), "highestInDb", hd.highestInDb)
+
 	var stride uint64
 	if hd.initialCycle {
 		stride = 192
@@ -558,6 +561,7 @@ func (hd *HeaderDownload) InsertHeader(hf FeedHeaderFunc, terminalTotalDifficult
 			hd.logger.Info(fmt.Sprintf("[%s] Inserting headers", logPrefix), "progress", hd.highestInDb, "queue", hd.insertQueue.Len())
 		default:
 		}
+
 		metrics.UpdateBlockConsumerHeaderDownloadDelay(link.header.Time, link.header.Number.Uint64(), hd.logger)
 
 		td, err := hf(link.header, link.headerRaw, hd.highestHashInDb, hd.highestInDb)

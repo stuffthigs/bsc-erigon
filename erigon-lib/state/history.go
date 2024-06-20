@@ -33,8 +33,6 @@ import (
 	btree2 "github.com/tidwall/btree"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/ledgerwatch/log/v3"
-
 	"github.com/ledgerwatch/erigon-lib/common"
 	"github.com/ledgerwatch/erigon-lib/common/background"
 	"github.com/ledgerwatch/erigon-lib/common/dir"
@@ -44,6 +42,7 @@ import (
 	"github.com/ledgerwatch/erigon-lib/kv/bitmapdb"
 	"github.com/ledgerwatch/erigon-lib/kv/iter"
 	"github.com/ledgerwatch/erigon-lib/kv/order"
+	"github.com/ledgerwatch/erigon-lib/log/v3"
 	"github.com/ledgerwatch/erigon-lib/recsplit"
 	"github.com/ledgerwatch/erigon-lib/recsplit/eliasfano32"
 	"github.com/ledgerwatch/erigon-lib/seg"
@@ -88,9 +87,9 @@ type History struct {
 	//   vals: key1+key2+txNum -> value (not DupSort)
 	historyLargeValues bool // can't use DupSort optimization (aka. prefix-compression) if values size > 4kb
 
-	dontProduceHistoryFiles bool   // don't produce .v and .ef files. old data will be pruned anyway.
-	historyDisabled         bool   // skip all write operations to this History (even in DB)
-	keepRecentTxInDB        uint64 // When dontProduceHistoryFiles=true, keepRecentTxInDB is used to keep this amount of tx in db before pruning
+	snapshotsDisabled bool   // don't produce .v and .ef files, keep in db table. old data will be pruned anyway.
+	historyDisabled   bool   // skip all write operations to this History (even in DB)
+	keepRecentTxnInDB uint64 // When dontProduceHistoryFiles=true, keepRecentTxInDB is used to keep this amount of tx in db before pruning
 }
 
 type histCfg struct {
@@ -105,21 +104,21 @@ type histCfg struct {
 	withLocalityIndex  bool
 	withExistenceIndex bool // move to iiCfg
 
-	dontProduceHistoryFiles bool   // don't produce .v and .ef files. old data will be pruned anyway.
-	keepTxInDB              uint64 // When dontProduceHistoryFiles=true, keepTxInDB is used to keep this amount of tx in db before pruning
+	snapshotsDisabled bool   // don't produce .v and .ef files. old data will be pruned anyway.
+	keepTxInDB        uint64 // When dontProduceHistoryFiles=true, keepTxInDB is used to keep this amount of tx in db before pruning
 }
 
 func NewHistory(cfg histCfg, aggregationStep uint64, filenameBase, indexKeysTable, indexTable, historyValsTable string, integrityCheck func(fromStep, toStep uint64) bool, logger log.Logger) (*History, error) {
 	h := History{
-		dirtyFiles:              btree2.NewBTreeGOptions[*filesItem](filesItemLess, btree2.Options{Degree: 128, NoLocks: false}),
-		historyValsTable:        historyValsTable,
-		compression:             cfg.compression,
-		compressWorkers:         1,
-		indexList:               withHashMap,
-		integrityCheck:          integrityCheck,
-		historyLargeValues:      cfg.historyLargeValues,
-		dontProduceHistoryFiles: cfg.dontProduceHistoryFiles,
-		keepRecentTxInDB:        cfg.keepTxInDB,
+		dirtyFiles:         btree2.NewBTreeGOptions[*filesItem](filesItemLess, btree2.Options{Degree: 128, NoLocks: false}),
+		historyValsTable:   historyValsTable,
+		compression:        cfg.compression,
+		compressWorkers:    1,
+		indexList:          withHashMap,
+		integrityCheck:     integrityCheck,
+		historyLargeValues: cfg.historyLargeValues,
+		snapshotsDisabled:  cfg.snapshotsDisabled,
+		keepRecentTxnInDB:  cfg.keepTxInDB,
 	}
 	h._visibleFiles = []ctxItem{}
 	var err error
@@ -573,7 +572,7 @@ func (c HistoryCollation) Close() {
 
 // [txFrom; txTo)
 func (h *History) collate(ctx context.Context, step, txFrom, txTo uint64, roTx kv.Tx) (HistoryCollation, error) {
-	if h.dontProduceHistoryFiles {
+	if h.snapshotsDisabled {
 		return HistoryCollation{}, nil
 	}
 
@@ -794,7 +793,7 @@ func (h *History) reCalcVisibleFiles() {
 // buildFiles performs potentially resource intensive operations of creating
 // static files and their indices
 func (h *History) buildFiles(ctx context.Context, step uint64, collation HistoryCollation, ps *background.ProgressSet) (HistoryFiles, error) {
-	if h.dontProduceHistoryFiles {
+	if h.snapshotsDisabled {
 		return HistoryFiles{}, nil
 	}
 	var (
@@ -893,7 +892,7 @@ func (h *History) buildFiles(ctx context.Context, step uint64, collation History
 }
 
 func (h *History) integrateDirtyFiles(sf HistoryFiles, txNumFrom, txNumTo uint64) {
-	if h.dontProduceHistoryFiles {
+	if h.snapshotsDisabled {
 		return
 	}
 
@@ -1008,11 +1007,11 @@ func (ht *HistoryRoTx) canPruneUntil(tx kv.Tx, untilTx uint64) (can bool, txTo u
 	//		ht.h.filenameBase, untilTx, ht.h.dontProduceHistoryFiles, txTo, minIdxTx, maxIdxTx, ht.h.keepRecentTxInDB, minIdxTx < txTo)
 	//}()
 
-	if ht.h.dontProduceHistoryFiles {
-		if ht.h.keepRecentTxInDB >= maxIdxTx {
+	if ht.h.snapshotsDisabled {
+		if ht.h.keepRecentTxnInDB >= maxIdxTx {
 			return false, 0
 		}
-		txTo = min(maxIdxTx-ht.h.keepRecentTxInDB, untilTx) // bound pruning
+		txTo = min(maxIdxTx-ht.h.keepRecentTxnInDB, untilTx) // bound pruning
 	} else {
 		canPruneIdx := ht.iit.CanPrune(tx)
 		if !canPruneIdx {
@@ -1114,7 +1113,7 @@ func (ht *HistoryRoTx) Prune(ctx context.Context, rwTx kv.RwTx, txFrom, txTo, li
 	}
 	mxPruneSizeHistory.AddInt(pruned)
 
-	if !forced && ht.h.dontProduceHistoryFiles {
+	if !forced && ht.h.snapshotsDisabled {
 		forced = true // or index.CanPrune will return false cuz no snapshots made
 	}
 
