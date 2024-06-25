@@ -421,17 +421,17 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*evmtype
 	amount := new(uint256.Int).SetUint64(st.gasUsed())
 	amount.Mul(amount, effectiveTip) // gasUsed * effectiveTip = how much goes to the block producer (miner, validator)
 	if st.isParlia {
-		st.state.AddBalance(consensus.SystemAddress, amount)
+		st.state.AddBalance(consensus.SystemAddress, amount, tracing.BalanceIncreaseRewardTransactionFee)
 		// add extra blob fee reward
 		if rules.IsCancun {
 			blobGasVal, overflow := new(uint256.Int).MulOverflow(st.evm.Context.BlobBaseFee, new(uint256.Int).SetUint64(st.msg.BlobGas()))
 			if overflow {
 				return nil, fmt.Errorf("%w: overflow converting blob gas: %v", ErrInsufficientFunds, blobGasVal)
 			}
-			st.state.AddBalance(consensus.SystemAddress, blobGasVal)
+			st.state.AddBalance(consensus.SystemAddress, blobGasVal, tracing.BalanceIncreaseRewardTransactionFee)
 		}
 	} else {
-		st.state.AddBalance(coinbase, amount)
+		st.state.AddBalance(coinbase, amount, tracing.BalanceIncreaseRewardTransactionFee)
 	}
 
 	result := &evmtypes.ExecutionResult{

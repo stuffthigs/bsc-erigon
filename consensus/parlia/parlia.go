@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ledgerwatch/erigon/core/tracing"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"math/big"
 	"sort"
 	"strings"
@@ -1453,8 +1455,8 @@ func (p *Parlia) distributeIncoming(val libcommon.Address, state *state.IntraBlo
 	if balance.Cmp(u256.Num0) <= 0 {
 		return nil
 	}
-	state.SetBalance(consensus.SystemAddress, u256.Num0)
-	state.AddBalance(coinbase, balance)
+	state.SetBalance(consensus.SystemAddress, u256.Num0, tracing.BalanceDecreaseGasBuy)
+	state.AddBalance(coinbase, balance, tracing.BalanceDecreaseGasBuy)
 
 	doDistributeSysReward := !p.chainConfig.IsKepler(header.Number.Uint64(), header.Time) &&
 		state.GetBalance(systemcontracts.SystemRewardContract).Cmp(maxSystemBalance) < 0
@@ -1710,4 +1712,12 @@ func (p *Parlia) GetFinalizedHeader(chain consensus.ChainHeaderReader, header *t
 func (c *Parlia) CalculateRewards(config *chain.Config, header *types.Header, uncles []*types.Header, syscall consensus.SystemCall,
 ) ([]consensus.Reward, error) {
 	return []consensus.Reward{}, nil
+}
+
+func (c *Parlia) GetTransferFunc() evmtypes.TransferFunc {
+	return consensus.Transfer
+}
+
+func (c *Parlia) GetPostApplyMessageFunc() evmtypes.PostApplyMessageFunc {
+	return nil
 }
