@@ -68,7 +68,6 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/klauspost/compress v1.17.8
 	github.com/ledgerwatch/erigon-lib v0.0.0-00010101000000-000000000000
-	github.com/ledgerwatch/log/v3 v3.9.0
 	github.com/libp2p/go-libp2p v0.34.0
 	github.com/libp2p/go-libp2p-mplex v0.9.0
 	github.com/libp2p/go-libp2p-pubsub v0.11.0
