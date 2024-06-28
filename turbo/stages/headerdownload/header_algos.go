@@ -603,14 +603,14 @@ func (hd *HeaderDownload) InsertHeader(hf FeedHeaderFunc, terminalTotalDifficult
 			}
 		}
 		if link.blockHeight == hd.latestMinedBlockNumber {
-			log.Debug("Header Inserted", "link.blockHeight", link.blockHeight)
+			//log.Debug("Header Inserted", "link.blockHeight", link.blockHeight)
 			dataflow.HeaderDownloadStates.AddChange(link.blockHeight, dataflow.HeaderInserted)
 			return false, true, 0, lastTime, nil
 		}
 	}
 	for hd.persistedLinkQueue.Len() > hd.persistedLinkLimit {
 		link := heap.Pop(&hd.persistedLinkQueue).(*Link)
-		log.Debug("HeaderEvicted", "link.blockHeight", link.blockHeight)
+		//log.Debug("HeaderEvicted", "link.blockHeight", link.blockHeight)
 		dataflow.HeaderDownloadStates.AddChange(link.blockHeight, dataflow.HeaderEvicted)
 		delete(hd.links, link.hash)
 		link.ClearChildren()
@@ -951,7 +951,7 @@ func (hi *HeaderInserter) FeedHeaderPoW(db kv.StatelessRwTx, headerReader servic
 					curJustifiedNumber = justifiedNumberGot
 				}
 			}
-			log.Debug(fmt.Sprintf("justifiedNumber = %d, curJustifiedNumber = %d, header.number = %d, hd.highestInDb = %d", justifiedNumber, curJustifiedNumber, blockHeight, highest))
+			//log.Debug(fmt.Sprintf("justifiedNumber = %d, curJustifiedNumber = %d, header.number = %d, hd.highestInDb = %d", justifiedNumber, curJustifiedNumber, blockHeight, highest))
 			if justifiedNumber == curJustifiedNumber {
 				return td.Cmp(hi.localTd) > 0, nil
 			}
@@ -1127,7 +1127,7 @@ func (hd *HeaderDownload) ProcessHeader(sh ChainSegmentHeader, newBlock bool, pe
 		anchor.fLink = link
 		hd.anchors[anchor.parentHash] = anchor
 		_, success := hd.anchorTree.ReplaceOrInsert(anchor)
-		log.Debug("AnchorTree add anchor", "anchor.blockHeight", anchor.blockHeight, "success", success)
+		log.Trace("AnchorTree add anchor", "anchor.blockHeight", anchor.blockHeight, "success", success)
 		return true
 	}
 	return false

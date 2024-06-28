@@ -2,6 +2,7 @@ package exec3
 
 import (
 	"context"
+	"github.com/ledgerwatch/erigon/core/systemcontracts"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -197,10 +198,22 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask) {
 		syscall := func(contract libcommon.Address, data []byte, ibs *state.IntraBlockState, header *types.Header, constCall bool) ([]byte, error) {
 			return core.SysCallContract(contract, data, rw.chainConfig, ibs, header, rw.engine, constCall /* constCall */)
 		}
+		if rw.isPoSA && !rw.chainConfig.IsFeynman(header.Number.Uint64(), header.Time) {
+			lastBlockTime := header.Time - rw.chainConfig.Parlia.Period
+			parent, _ := rw.blockReader.HeaderByHash(rw.ctx, rw.chainTx, header.ParentHash)
+			if parent != nil {
+				lastBlockTime = parent.Time
+			}
+			systemcontracts.UpgradeBuildInSystemContract(rw.chainConfig, header.Number, lastBlockTime, header.Time, ibs, rw.logger)
+		}
 		rw.engine.Initialize(rw.chainConfig, rw.chain, header, ibs, syscall, rw.logger)
 		txTask.Error = ibs.FinalizeTx(rules, noop)
 	case txTask.Final:
 		if txTask.BlockNum == 0 {
+			break
+		}
+
+		if _, isPoSa := rw.engine.(consensus.PoSA); isPoSa {
 			break
 		}
 
@@ -210,7 +223,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask) {
 			return core.SysCallContract(contract, data, rw.chainConfig, ibs, header, rw.engine, false /* constCall */)
 		}
 
-		_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, rw.logger)
+		_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, nil, txTask.TxIndex, rw.logger)
 		if err != nil {
 			txTask.Error = err
 		} else {
@@ -224,16 +237,67 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask) {
 				txTask.TraceTos[uncle.Coinbase] = struct{}{}
 			}
 		}
-	default:
-		//fmt.Printf("txNum=%d, blockNum=%d, txIndex=%d\n", txTask.TxNum, txTask.BlockNum, txTask.TxIndex)
-		if rw.isPoSA {
-			if isSystemTx, err := rw.posa.IsSystemTransaction(txTask.Tx, header); err != nil {
-				panic(err)
-			} else if isSystemTx {
-				//fmt.Printf("System tx\n")
-				return
-			}
+	case txTask.SystemTxIndex > 0:
+
+		syscall := func(contract libcommon.Address, data []byte) ([]byte, error) {
+			return core.SysCallContract(contract, data, rw.chainConfig, ibs, header, rw.engine, false /* constCall */)
 		}
+
+		systemCall := func(ibs *state.IntraBlockState, index int) ([]byte, bool, error) {
+
+			rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock())
+			rw.callTracer.Reset()
+			rw.vmCfg.SkipAnalysis = txTask.SkipAnalysis
+			msg := txTask.TxAsMessage
+			ibs.SetTxContext(txTask.Tx.Hash(), txTask.BlockHash, txTask.TxIndex)
+			if rw.chainConfig.IsCancun(header.Number.Uint64(), header.Time) {
+				rules := rw.chainConfig.Rules(header.Number.Uint64(), header.Time)
+				ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
+			}
+			rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, core.NewEVMTxContext(msg), ibs, rw.vmCfg, rules)
+			// Increment the nonce for the next transaction
+			ibs.SetNonce(msg.From(), ibs.GetNonce(msg.From())+1)
+			ret, leftOverGas, err := rw.evm.Call(
+				vm.AccountRef(msg.From()),
+				*msg.To(),
+				msg.Data(),
+				msg.Gas(),
+				msg.Value(),
+				false,
+			)
+			if err != nil {
+				txTask.Error = err
+			} else {
+				txTask.Failed = false
+				txTask.UsedGas = msg.Gas() - leftOverGas
+				// Update the state with pending changes
+				ibs.SoftFinalise()
+				//txTask.Error = ibs.FinalizeTx(rules, noop)
+				txTask.Logs = ibs.GetLogs(txTask.Tx.Hash())
+				txTask.TraceFroms = rw.callTracer.Froms()
+				txTask.TraceTos = rw.callTracer.Tos()
+			}
+
+			if txTask.Error == nil {
+				txTask.BalanceIncreaseSet = ibs.BalanceIncreaseSet()
+				//for addr, bal := range txTask.BalanceIncreaseSet {
+				//	fmt.Printf("BalanceIncreaseSet [%x]=>[%d]\n", addr, &bal)
+				//}
+				if err = ibs.MakeWriteSet(rules, rw.stateWriter); err != nil {
+					panic(err)
+				}
+				txTask.ReadLists = rw.stateReader.ReadSet()
+				txTask.WriteLists = rw.stateWriter.WriteSet()
+				txTask.AccountPrevs, txTask.AccountDels, txTask.StoragePrevs, txTask.CodePrevs = rw.stateWriter.PrevAndDels()
+			}
+			return ret, true, nil
+		}
+
+		_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, systemCall, txTask.TxIndex, rw.logger)
+		if err != nil {
+			txTask.Error = err
+		}
+	default:
 		txHash := txTask.Tx.Hash()
 		rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock())
 		rw.callTracer.Reset()
