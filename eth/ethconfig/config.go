@@ -301,7 +301,6 @@ type Sync struct {
 var ChainsWithSnapshots = map[string]struct{}{
 	networkname.MainnetChainName:    {},
 	networkname.SepoliaChainName:    {},
-	networkname.GoerliChainName:     {},
 	networkname.MumbaiChainName:     {},
 	networkname.AmoyChainName:       {},
 	networkname.BSCChainName:        {},

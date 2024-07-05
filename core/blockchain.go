@@ -111,7 +111,7 @@ func ExecuteBlockEphemerallyForBSC(
 	)
 
 	parent := chainReader.GetHeader(header.ParentHash, header.Number.Uint64()-1)
-	if err := InitializeBlockExecution(engine, chainReader, block.Header(), parent, chainConfig, ibs, logger); err != nil {
+	if err := InitializeBlockExecution(engine, chainReader, block.Header(), parent, chainConfig, ibs, logger, nil); err != nil {
 		return nil, err
 	}
 
@@ -250,7 +250,7 @@ func ExecuteBlockEphemerally(
 
 	// TODO: send the new tracer once we switch to the tracing.Hook
 	parent := chainReader.GetHeader(header.ParentHash, header.Number.Uint64()-1)
-	if err := InitializeBlockExecution(engine, chainReader, block.Header(), parent, chainConfig, ibs, logger); err != nil {
+	if err := InitializeBlockExecution(engine, chainReader, block.Header(), parent, chainConfig, ibs, logger, nil); err != nil {
 		return nil, err
 	}
 
