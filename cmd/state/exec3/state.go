@@ -239,7 +239,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask) {
 			return core.SysCallContract(contract, data, rw.chainConfig, ibs, header, rw.engine, false /* constCall */)
 		}
 
-		_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, nil, txTask.TxIndex, rw.logger)
+		_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, nil, txTask.TxIndex, rw.chainTx, rw.logger)
 		if err != nil {
 			txTask.Error = err
 		} else {
@@ -268,7 +268,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask) {
 			ibs.SetTxContext(txTask.Tx.Hash(), txTask.BlockHash, txTask.TxIndex)
 			if rw.chainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 				rules := rw.chainConfig.Rules(header.Number.Uint64(), header.Time)
-				ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
+				ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)
 			}
 			rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, core.NewEVMTxContext(msg), ibs, rw.vmCfg, rules)
 			// Increment the nonce for the next transaction
@@ -309,7 +309,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask) {
 			return ret, true, nil
 		}
 
-		_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, systemCall, txTask.TxIndex, rw.logger)
+		_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, systemCall, txTask.TxIndex, rw.chainTx, rw.logger)
 		if err != nil {
 			txTask.Error = err
 		}

@@ -329,7 +329,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 			syscall := func(contract libcommon.Address, data []byte) ([]byte, error) {
 				return core.SysCallContract(contract, data, rw.chainConfig, ibs, header, rw.engine, false /* constCall */)
 			}
-			if _, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, nil, 0, rw.logger); err != nil {
+			if _, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, nil, 0, nil, rw.logger); err != nil {
 				if _, readError := rw.stateReader.ReadError(); !readError {
 					return fmt.Errorf("finalize of block %d failed: %w", txTask.BlockNum, err)
 				}
@@ -372,7 +372,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 					ibs.SetTxContext(txTask.Tx.Hash(), txTask.BlockHash, txTask.TxIndex)
 					if rw.chainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 						rules := rw.chainConfig.Rules(header.Number.Uint64(), header.Time)
-						ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
+						ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)
 					}
 					rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, core.NewEVMTxContext(msg), ibs, vmConfig, rules)
 					// Increment the nonce for the next transaction
@@ -396,7 +396,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 					}
 					return nil, true, nil
 				}
-				_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, systemCall, txTask.TxIndex, rw.logger)
+				_, _, _, err := rw.engine.Finalize(rw.chainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, systemCall, txTask.TxIndex, nil, rw.logger)
 				if err != nil {
 					txTask.Error = err
 					return err

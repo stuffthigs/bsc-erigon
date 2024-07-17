@@ -171,7 +171,7 @@ func ExecuteBlockEphemerallyForBSC(
 		syscall := func(contract libcommon.Address, data []byte) ([]byte, error) {
 			return SysCallContract(contract, data, chainConfig, ibs, header, engine, false /* constCall */)
 		}
-		outTxs, outReceipts, _, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), block.Requests(), chainReader, syscall, nil, 0, logger)
+		outTxs, outReceipts, _, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), block.Requests(), chainReader, syscall, nil, 0, nil, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -480,7 +480,7 @@ func FinalizeBlockExecution(
 		newBlock, newTxs, newReceipt, err = engine.FinalizeAndAssemble(cc, header, ibs, txs, uncles, receipts, withdrawals, requests, chainReader, syscall, nil, logger)
 	} else {
 		var rss types.Requests
-		_, _, rss, err = engine.Finalize(cc, header, ibs, txs, uncles, receipts, withdrawals, requests, chainReader, syscall, nil, 0, logger)
+		_, _, rss, err = engine.Finalize(cc, header, ibs, txs, uncles, receipts, withdrawals, requests, chainReader, syscall, nil, 0, nil, logger)
 
 		if !reflect.DeepEqual(rss, requests) {
 			return nil, nil, nil, fmt.Errorf("invalid requests for block %d", header.Number.Uint64())

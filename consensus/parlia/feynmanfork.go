@@ -3,6 +3,8 @@ package parlia
 import (
 	"container/heap"
 	"fmt"
+	"github.com/ledgerwatch/erigon-lib/kv"
+	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
 	"math/big"
 
 	"github.com/ledgerwatch/erigon-lib/common"
@@ -95,20 +97,22 @@ func (h *ValidatorHeap) Pop() interface{} {
 
 func (p *Parlia) updateValidatorSetV2(chain consensus.ChainHeaderReader, ibs *state.IntraBlockState, header *types.Header,
 	txs *types.Transactions, receipts *types.Receipts, systemTxs *types.Transactions, usedGas *uint64, mining bool,
-	systemTxCall consensus.SystemTxCall, curIndex *int, txIndex *int,
+	systemTxCall consensus.SystemTxCall, curIndex *int, txIndex *int, tx kv.Tx,
 ) (bool, error) {
 	// 1. get all validators and its voting header.Nu power
 	parent := chain.GetHeader(header.ParentHash, header.Number.Uint64()-1)
 
-	reader := ibs.StateReader.(state.ResettableStateReader)
-	txNum := reader.GetTxNum()
-	reader.SetTxNum(txNum - uint64(*txIndex))
-	state := state.New(reader)
-	validatorItems, err := p.getValidatorElectionInfo(parent, state)
+	stateReader := state.NewHistoryReaderV3()
+	stateReader.SetTx(tx)
+	maxTxNum, _ := rawdbv3.TxNums.Max(tx, header.Number.Uint64()-1)
+	stateReader.SetTxNum(maxTxNum)
+	history := state.New(stateReader)
+
+	validatorItems, err := p.getValidatorElectionInfo(parent, history)
 	if err != nil {
 		return true, err
 	}
-	maxElectedValidators, err := p.getMaxElectedValidators(parent, state)
+	maxElectedValidators, err := p.getMaxElectedValidators(parent, history)
 	if err != nil {
 		return true, err
 	}
@@ -117,7 +121,6 @@ func (p *Parlia) updateValidatorSetV2(chain consensus.ChainHeaderReader, ibs *st
 	eValidators, eVotingPowers, eVoteAddrs := getTopValidatorsByVotingPower(validatorItems, maxElectedValidators)
 
 	// 3. update validator set to system contract
-	reader.SetTxNum(txNum)
 	method := "updateValidatorSetV2"
 	data, err := p.validatorSetABI.Pack(method, eValidators, eVotingPowers, eVoteAddrs)
 	if err != nil {

@@ -250,7 +250,7 @@ func BodiesForward(s *StageState, u Unwinder, ctx context.Context, tx kv.RwTx, c
 				metrics.UpdateBlockConsumerBodyDownloadDelay(header.Time, header.Number.Uint64(), logger)
 
 				if cfg.chanConfig.Parlia != nil && cfg.chanConfig.IsCancun(headerNumber, header.Time) {
-					if err = core.IsDataAvailable(cr, header, rawBody); err != nil {
+					if err = core.IsDataAvailable(cr, header, rawBody, cfg.bd.LatestBlock); err != nil {
 						return false, err
 					}
 				}
@@ -275,7 +275,7 @@ func BodiesForward(s *StageState, u Unwinder, ctx context.Context, tx kv.RwTx, c
 						if err != nil {
 							return false, fmt.Errorf("WriteBlobSidecars: %w", err)
 						}
-						logger.Debug("WriteBlobSidecars", "block number", header.Number, "len(sidecars)", len(rawBody.Sidecars))
+						logger.Trace("WriteBlobSidecars", "block number", header.Number, "len(sidecars)", len(rawBody.Sidecars))
 					}
 				}
 				if ok {

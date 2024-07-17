@@ -95,6 +95,8 @@ var (
 		systemcontracts.TimelockContract:           {},
 		systemcontracts.TokenRecoverPortalContract: {},
 	}
+
+	doDistributeSysReward = false
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -711,7 +713,7 @@ func (p *Parlia) prepareValidators(header *types.Header, chain consensus.ChainHe
 	}
 	parentHeader := chain.GetHeader(header.ParentHash, header.Number.Uint64())
 
-	newValidators, voteAddressMap, err := p.getCurrentValidators(parentHeader, ibs, 0)
+	newValidators, voteAddressMap, err := p.getCurrentValidators(parentHeader, ibs, 0, nil)
 	if err != nil {
 		return err
 	}
@@ -898,12 +900,12 @@ func (p *Parlia) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	return nil
 }
 
-func (p *Parlia) verifyValidators(header, parentHeader *types.Header, state *state.IntraBlockState, txIndex int) error {
+func (p *Parlia) verifyValidators(header, parentHeader *types.Header, state *state.IntraBlockState, txIndex int, tx kv.Tx) error {
 	if (header.Number.Uint64())%p.config.Epoch != 0 {
 		return nil
 	}
 
-	newValidators, voteAddressMap, err := p.getCurrentValidators(parentHeader, state, txIndex)
+	newValidators, voteAddressMap, err := p.getCurrentValidators(parentHeader, state, txIndex, tx)
 	if err != nil {
 		return nil
 	}
@@ -936,7 +938,9 @@ func (p *Parlia) verifyValidators(header, parentHeader *types.Header, state *sta
 			copy(validatorsBytes[i*validatorBytesLength+length.Addr:], voteAddressMap[validator].Bytes())
 		}
 	}
-	if !bytes.Equal(getValidatorBytesFromHeader(header, p.chainConfig, p.config), validatorsBytes) {
+	headerValidator := getValidatorBytesFromHeader(header, p.chainConfig, p.config)
+	if !bytes.Equal(headerValidator, validatorsBytes) {
+		log.Info("Verify validator set", "header validatorbytes", hexutility.Encode(headerValidator), "getCurrentValidator", hexutility.Encode(validatorsBytes))
 		return errMismatchingEpochValidators
 	}
 	return nil
@@ -972,17 +976,17 @@ func (p *Parlia) splitTxs(txs types.Transactions, header *types.Header) (userTxs
 // consensus rules that happen at finalization (e.g. block rewards).
 func (p *Parlia) Finalize(_ *chain.Config, header *types.Header, state *state.IntraBlockState,
 	txs types.Transactions, _ []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal, requests types.Requests,
-	chain consensus.ChainReader, syscall consensus.SystemCall, systemTxCall consensus.SystemTxCall, txIndex int,
+	chain consensus.ChainReader, syscall consensus.SystemCall, systemTxCall consensus.SystemTxCall, txIndex int, tx kv.Tx,
 	logger log.Logger) (types.Transactions, types.Receipts, types.Requests, error) {
 	if requests != nil || header.RequestsRoot != nil {
 		return nil, nil, nil, consensus.ErrUnexpectedRequests
 	}
-	return p.finalize(header, state, txs, receipts, chain, false, systemTxCall, txIndex, logger)
+	return p.finalize(header, state, txs, receipts, chain, false, systemTxCall, txIndex, tx, logger)
 }
 
 func (p *Parlia) finalize(header *types.Header, ibs *state.IntraBlockState, txs types.Transactions,
 	receipts types.Receipts, chain consensus.ChainHeaderReader, mining bool, systemTxCall consensus.SystemTxCall,
-	txIndex int, logger log.Logger) (types.Transactions, types.Receipts, types.Requests, error) {
+	txIndex int, tx kv.Tx, logger log.Logger) (types.Transactions, types.Receipts, types.Requests, error) {
 	userTxs, systemTxs, err := p.splitTxs(txs, header)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1006,7 +1010,7 @@ func (p *Parlia) finalize(header *types.Header, ibs *state.IntraBlockState, txs 
 	parentHeader := chain.GetHeader(header.ParentHash, number-1)
 
 	if curIndex == txIndex {
-		if err := p.verifyValidators(header, parentHeader, ibs, curIndex); err != nil {
+		if err := p.verifyValidators(header, parentHeader, ibs, curIndex, tx); err != nil {
 			return nil, nil, nil, err
 		}
 
@@ -1078,7 +1082,7 @@ func (p *Parlia) finalize(header *types.Header, ibs *state.IntraBlockState, txs 
 	if p.chainConfig.IsFeynman(header.Number.Uint64(), header.Time) && isBreatheBlock(parentHeader.Time, header.Time) {
 		// we should avoid update validators in the Feynman upgrade block
 		if !p.chainConfig.IsOnFeynman(header.Number, parentHeader.Time, header.Time) {
-			finish, err := p.updateValidatorSetV2(chain, ibs, header, &txs, &receipts, &systemTxs, &header.GasUsed, false, systemTxCall, &curIndex, &txIndex)
+			finish, err := p.updateValidatorSetV2(chain, ibs, header, &txs, &receipts, &systemTxs, &header.GasUsed, false, systemTxCall, &curIndex, &txIndex, tx)
 			if err != nil {
 				return nil, nil, nil, err
 			} else if finish {
@@ -1186,7 +1190,7 @@ func (p *Parlia) FinalizeAndAssemble(chainConfig *chain.Config, header *types.He
 		return nil, nil, nil, consensus.ErrUnexpectedRequests
 	}
 
-	outTxs, outReceipts, _, err := p.finalize(header, ibs, txs, receipts, chain, true, nil, 0, logger)
+	outTxs, outReceipts, _, err := p.finalize(header, ibs, txs, receipts, chain, true, nil, 0, nil, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1418,17 +1422,13 @@ func (p *Parlia) Close() error {
 // ==========================  interaction with contract/account =========
 
 // getCurrentValidators get current validators
-func (p *Parlia) getCurrentValidators(header *types.Header, ibs *state.IntraBlockState, txIndex int) ([]libcommon.Address, map[libcommon.Address]*types.BLSPublicKey, error) {
-	txNum := ibs.StateReader.(state.ResettableStateReader).GetTxNum()
-	tx, err := p.chainDb.BeginRo(context.Background())
-	if err != nil {
-		return nil, nil, err
-	}
-	defer tx.Rollback()
-	stateReader := state.NewHistoryReaderV3()
-	stateReader.SetTx(tx)
-	stateReader.SetTxNum(txNum - uint64(txIndex))
-	history := state.New(stateReader)
+func (p *Parlia) getCurrentValidators(header *types.Header, ibs *state.IntraBlockState, txIndex int, tx kv.Tx) ([]libcommon.Address, map[libcommon.Address]*types.BLSPublicKey, error) {
+	//txNum := ibs.StateReader.(state.ResettableStateReader).GetTxNum()
+	//stateReader := state.NewHistoryReaderV3()
+	//stateReader.SetTx(tx)
+	//stateReader.SetTxNum(txNum - uint64(txIndex))
+	history := state.New(ibs.StateReader)
+	history.Reset()
 	// This is actually the parentNumber
 	if !p.chainConfig.IsLuban(header.Number.Uint64()) {
 		validators, err := p.getCurrentValidatorsBeforeLuban(header, ibs)
@@ -1471,11 +1471,11 @@ func (p *Parlia) distributeIncoming(val libcommon.Address, state *state.IntraBlo
 	usedGas *uint64, mining bool, systemTxCall consensus.SystemTxCall, curIndex *int, txIndex *int) (bool, error) {
 	coinbase := header.Coinbase
 	balance := state.GetBalance(consensus.SystemAddress).Clone()
-	if balance.Cmp(u256.Num0) <= 0 {
+	if balance.Cmp(u256.Num0) <= 0 && *curIndex == *txIndex {
 		return false, nil
 	}
 	if *curIndex == *txIndex {
-		doDistributeSysReward := !p.chainConfig.IsKepler(header.Number.Uint64(), header.Time) &&
+		doDistributeSysReward = !p.chainConfig.IsKepler(header.Number.Uint64(), header.Time) &&
 			state.GetBalance(systemcontracts.SystemRewardContract).Cmp(maxSystemBalance) < 0
 		if doDistributeSysReward {
 			rewards := new(uint256.Int)
@@ -1492,7 +1492,7 @@ func (p *Parlia) distributeIncoming(val libcommon.Address, state *state.IntraBlo
 			}
 		}
 	}
-	if *curIndex != *txIndex {
+	if *curIndex != *txIndex && doDistributeSysReward {
 		*curIndex++
 	}
 	if *curIndex == *txIndex {
@@ -1623,7 +1623,7 @@ func (p *Parlia) applyTransaction(from libcommon.Address, to libcommon.Address, 
 		}
 
 		actualHash := actualTx.SigningHash(p.chainConfig.ChainID)
-		if !bytes.Equal(actualHash.Bytes(), expectedHash.Bytes()) {
+		if !bytes.Equal(actualHash.Bytes(), expectedHash.Bytes()) && !(to.String() == systemcontracts.ValidatorContract.String() && actualTx.GetValue().Eq(u256.Num0)) {
 			return false, fmt.Errorf("expected system tx (hash %v, nonce %d, to %s, value %s, gas %d, gasPrice %s, data %s), actual tx (hash %v, nonce %d, to %s, value %s, gas %d, gasPrice %s, data %s)",
 				expectedHash.String(),
 				expectedTx.GetNonce(),
@@ -1671,7 +1671,7 @@ func (p *Parlia) systemCall(from, contract libcommon.Address, data []byte, ibs *
 	blockContext := core.NewEVMBlockContext(header, core.GetHashFn(header, nil), p, &from, chainConfig)
 	if chainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 		rules := chainConfig.Rules(header.Number.Uint64(), header.Time)
-		ibs.Prepare(rules, msg.From(), blockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
+		ibs.Prepare(rules, msg.From(), blockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)
 	}
 	evm := vm.NewEVM(blockContext, core.NewEVMTxContext(msg), ibs, chainConfig, vmConfig)
 
