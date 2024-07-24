@@ -29,41 +29,41 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ledgerwatch/erigon/eth/ethconfig/estimate"
+	"github.com/erigontech/erigon/eth/ethconfig/estimate"
 
 	"github.com/c2h5oh/datasize"
 	"github.com/erigontech/mdbx-go/mdbx"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/ledgerwatch/erigon-lib/log/v3"
+	"github.com/erigontech/erigon-lib/log/v3"
 
-	"github.com/ledgerwatch/erigon-lib/chain"
-	"github.com/ledgerwatch/erigon-lib/common"
-	"github.com/ledgerwatch/erigon-lib/common/cmp"
-	"github.com/ledgerwatch/erigon-lib/common/datadir"
-	"github.com/ledgerwatch/erigon-lib/common/dbg"
-	"github.com/ledgerwatch/erigon-lib/common/dir"
-	metrics2 "github.com/ledgerwatch/erigon-lib/common/metrics"
-	"github.com/ledgerwatch/erigon-lib/config3"
-	"github.com/ledgerwatch/erigon-lib/etl"
-	"github.com/ledgerwatch/erigon-lib/kv"
-	kv2 "github.com/ledgerwatch/erigon-lib/kv/mdbx"
-	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
-	"github.com/ledgerwatch/erigon-lib/metrics"
-	state2 "github.com/ledgerwatch/erigon-lib/state"
-	"github.com/ledgerwatch/erigon-lib/wrap"
-	"github.com/ledgerwatch/erigon/cmd/state/exec3"
-	"github.com/ledgerwatch/erigon/common/math"
-	"github.com/ledgerwatch/erigon/consensus"
-	"github.com/ledgerwatch/erigon/core"
-	"github.com/ledgerwatch/erigon/core/rawdb"
-	"github.com/ledgerwatch/erigon/core/rawdb/rawdbhelpers"
-	"github.com/ledgerwatch/erigon/core/state"
-	"github.com/ledgerwatch/erigon/core/types"
-	"github.com/ledgerwatch/erigon/core/types/accounts"
-	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
-	"github.com/ledgerwatch/erigon/turbo/services"
-	"github.com/ledgerwatch/erigon/turbo/shards"
+	"github.com/erigontech/erigon-lib/chain"
+	"github.com/erigontech/erigon-lib/common"
+	"github.com/erigontech/erigon-lib/common/cmp"
+	"github.com/erigontech/erigon-lib/common/datadir"
+	"github.com/erigontech/erigon-lib/common/dbg"
+	"github.com/erigontech/erigon-lib/common/dir"
+	metrics2 "github.com/erigontech/erigon-lib/common/metrics"
+	"github.com/erigontech/erigon-lib/config3"
+	"github.com/erigontech/erigon-lib/etl"
+	"github.com/erigontech/erigon-lib/kv"
+	kv2 "github.com/erigontech/erigon-lib/kv/mdbx"
+	"github.com/erigontech/erigon-lib/kv/rawdbv3"
+	"github.com/erigontech/erigon-lib/metrics"
+	state2 "github.com/erigontech/erigon-lib/state"
+	"github.com/erigontech/erigon-lib/wrap"
+	"github.com/erigontech/erigon/cmd/state/exec3"
+	"github.com/erigontech/erigon/common/math"
+	"github.com/erigontech/erigon/consensus"
+	"github.com/erigontech/erigon/core"
+	"github.com/erigontech/erigon/core/rawdb"
+	"github.com/erigontech/erigon/core/rawdb/rawdbhelpers"
+	"github.com/erigontech/erigon/core/state"
+	"github.com/erigontech/erigon/core/types"
+	"github.com/erigontech/erigon/core/types/accounts"
+	"github.com/erigontech/erigon/eth/stagedsync/stages"
+	"github.com/erigontech/erigon/turbo/services"
+	"github.com/erigontech/erigon/turbo/shards"
 )
 
 var execStepsInDB = metrics.NewGauge(`exec_steps_in_db`) //nolint
@@ -78,6 +78,7 @@ func NewProgress(prevOutputBlockNum, commitThreshold uint64, workersCount int, l
 type Progress struct {
 	prevTime           time.Time
 	prevCount          uint64
+	prevMgas           uint64
 	prevOutputBlockNum uint64
 	prevRepeatCount    uint64
 	commitThreshold    uint64
@@ -87,7 +88,7 @@ type Progress struct {
 	logger       log.Logger
 }
 
-func (p *Progress) Log(rs *state.StateV3, in *state.QueueWithRetry, rws *state.ResultsQueue, doneCount, inputBlockNum, outputBlockNum, outTxNum, repeatCount uint64, idxStepsAmountInDB float64) {
+func (p *Progress) Log(rs *state.StateV3, in *state.QueueWithRetry, rws *state.ResultsQueue, doneCount, doneGasUsed, inputBlockNum, outputBlockNum, outTxNum, repeatCount uint64, idxStepsAmountInDB float64, shouldGenerateChangesets bool) {
 	execStepsInDB.Set(idxStepsAmountInDB * 100)
 	var m runtime.MemStats
 	dbg.ReadMemStats(&m)
@@ -95,18 +96,25 @@ func (p *Progress) Log(rs *state.StateV3, in *state.QueueWithRetry, rws *state.R
 	currentTime := time.Now()
 	interval := currentTime.Sub(p.prevTime)
 	speedTx := float64(doneCount-p.prevCount) / (float64(interval) / float64(time.Second))
+	speedMgas := float64(doneGasUsed-p.prevMgas) / 1_000_000 / (float64(interval) / float64(time.Second))
 	//var repeatRatio float64
 	//if doneCount > p.prevCount {
 	//	repeatRatio = 100.0 * float64(repeatCount-p.prevRepeatCount) / float64(doneCount-p.prevCount)
 	//}
-	p.logger.Info(fmt.Sprintf("[%s] Transaction replay", p.logPrefix),
+
+	var suffix string
+	if shouldGenerateChangesets {
+		suffix = " Commit every block"
+	}
+	p.logger.Info(fmt.Sprintf("[%s]"+suffix, p.logPrefix),
 		//"workers", workerCount,
 		"blk", outputBlockNum,
 		"tx/s", fmt.Sprintf("%.1f", speedTx),
+		"Mgas/s", fmt.Sprintf("%.1f", speedMgas),
 		//"pipe", fmt.Sprintf("(%d+%d)->%d/%d->%d/%d", in.NewTasksLen(), in.RetriesLen(), rws.ResultChLen(), rws.ResultChCap(), rws.Len(), rws.Limit()),
 		//"repeatRatio", fmt.Sprintf("%.2f%%", repeatRatio),
 		//"workers", p.workersCount,
-		"buffer", fmt.Sprintf("%s/%s", common.ByteCount(sizeEstimate), common.ByteCount(p.commitThreshold)),
+		"buf", fmt.Sprintf("%s/%s", common.ByteCount(sizeEstimate), common.ByteCount(p.commitThreshold)),
 		"stepsInDB", fmt.Sprintf("%.2f", idxStepsAmountInDB),
 		"step", fmt.Sprintf("%.1f", float64(outTxNum)/float64(config3.HistoryV3AggregationStep)),
 		"alloc", common.ByteCount(m.Alloc), "sys", common.ByteCount(m.Sys),
@@ -114,6 +122,7 @@ func (p *Progress) Log(rs *state.StateV3, in *state.QueueWithRetry, rws *state.R
 
 	p.prevTime = currentTime
 	p.prevCount = doneCount
+	p.prevMgas = doneGasUsed
 	p.prevOutputBlockNum = outputBlockNum
 	p.prevRepeatCount = repeatCount
 }
@@ -192,14 +201,12 @@ func ExecV3(ctx context.Context,
 	if initialCycle {
 		agg.SetCollateAndBuildWorkers(min(2, estimate.StateV3Collate.Workers()))
 		agg.SetCompressWorkers(estimate.CompressSnapshot.Workers())
-		//if blockNum < cfg.blockReader.FrozenBlocks() {
-		//defer agg.DiscardHistory(kv.CommitmentDomain).EnableHistory(kv.CommitmentDomain)
-		//defer agg.LimitRecentHistoryWithoutFiles(0).LimitRecentHistoryWithoutFiles(agg.StepSize() / 10)
-		//}
 	} else {
 		agg.SetCompressWorkers(1)
 		agg.SetCollateAndBuildWorkers(1)
 	}
+
+	pruneNonEssentials := cfg.prune.History.Enabled() && cfg.prune.History.PruneTo(execStage.BlockNumber) == execStage.BlockNumber
 
 	var err error
 	inMemExec := txc.Doms != nil
@@ -239,6 +246,7 @@ func ExecV3(ctx context.Context,
 		}
 		return lastTxNum == inputTxNum, nil
 	}
+
 	// Cases:
 	//  1. Snapshots > ExecutionStage: snapshots can have half-block data `10.4`. Get right txNum from SharedDomains (after SeekCommitment)
 	//  2. ExecutionStage > Snapshots: no half-block data possible. Rely on DB.
@@ -276,8 +284,8 @@ func ExecV3(ctx context.Context,
 		inputTxNum = _min
 		outputTxNum.Store(inputTxNum)
 
-		//_max, _ := rawdbv3.TxNums.Max(applyTx, blockNum)
-		//fmt.Printf("[commitment] found domain.txn %d, inputTxn %d, offset %d. DB found block %d {%d, %d}\n", doms.TxNum(), inputTxNum, offsetFromBlockBeginning, blockNum, _min, _max)
+		//_max, _ := rawdbv3.TxNums.Max(applyTx, _blockNum)
+		//log.Info(fmt.Sprintf("[commitment] found domain.txn %d, inputTxn %d, offset %d. DB found block %d {%d, %d}\n", doms.TxNum(), inputTxNum, offsetFromBlockBeginning, _blockNum, _min, _max))
 		doms.SetBlockNum(_blockNum)
 		doms.SetTxNum(inputTxNum)
 		return nil
@@ -328,7 +336,7 @@ func ExecV3(ctx context.Context,
 
 	var outputBlockNum = stages.SyncMetrics[stages.Execution]
 	inputBlockNum := &atomic.Uint64{}
-	var count uint64
+	var count, totalGas uint64
 	var lock sync.RWMutex
 
 	shouldReportToTxPool := maxBlockNum-blockNum <= 64
@@ -442,7 +450,7 @@ func ExecV3(ctx context.Context,
 
 				case <-logEvery.C:
 					stepsInDB := rawdbhelpers.IdxStepsCountV3(tx)
-					progress.Log(rs, in, rws, rs.DoneCount(), inputBlockNum.Load(), outputBlockNum.GetValueUint64(), outputTxNum.Load(), execRepeats.GetValueUint64(), stepsInDB)
+					progress.Log(rs, in, rws, rs.DoneCount(), 0, inputBlockNum.Load(), outputBlockNum.GetValueUint64(), outputTxNum.Load(), execRepeats.GetValueUint64(), stepsInDB, shouldGenerateChangesets)
 					if agg.HasBackgroundFilesBuild() {
 						logger.Info(fmt.Sprintf("[%s] Background files build", execStage.LogPrefix()), "progress", agg.BackgroundProgress())
 					}
@@ -720,26 +728,28 @@ Loop:
 		for txIndex := -1; txIndex <= len(txs); txIndex++ {
 			// Do not oversend, wait for the result heap to go under certain size
 			txTask := &state.TxTask{
-				BlockNum:        blockNum,
-				Header:          header,
-				Coinbase:        b.Coinbase(),
-				Uncles:          b.Uncles(),
-				Rules:           rules,
-				Txs:             txs,
-				TxNum:           inputTxNum,
-				TxIndex:         txIndex,
-				BlockHash:       b.Hash(),
-				SkipAnalysis:    skipAnalysis,
-				Final:           txIndex == len(txs),
-				GetHashFn:       getHashFn,
-				EvmBlockContext: blockContext,
-				Withdrawals:     b.Withdrawals(),
-				Requests:        b.Requests(),
+				BlockNum:           blockNum,
+				Header:             header,
+				Coinbase:           b.Coinbase(),
+				Uncles:             b.Uncles(),
+				Rules:              rules,
+				Txs:                txs,
+				TxNum:              inputTxNum,
+				TxIndex:            txIndex,
+				BlockHash:          b.Hash(),
+				SkipAnalysis:       skipAnalysis,
+				Final:              txIndex == len(txs),
+				GetHashFn:          getHashFn,
+				EvmBlockContext:    blockContext,
+				Withdrawals:        b.Withdrawals(),
+				Requests:           b.Requests(),
+				PruneNonEssentials: pruneNonEssentials,
 
 				// use history reader instead of state reader to catch up to the tx where we left off
 				HistoryExecution: offsetFromBlockBeginning > 0 && txIndex < int(offsetFromBlockBeginning),
 
 				BlockReceipts: receipts,
+				Config:        cfg.genesis.Config,
 			}
 
 			if txIndex >= 0 && !txTask.Final && isPoSa {
@@ -816,6 +826,7 @@ Loop:
 							return fmt.Errorf("%w, txnIdx=%d, %v", consensus.ErrInvalidBlock, txTask.TxIndex, err) //same as in stage_exec.go
 						}
 					}
+					totalGas += usedGas
 					usedGas, blobGasUsed = 0, 0
 					receipts = receipts[:0]
 				} else if txTask.TxIndex >= 0 {
@@ -855,7 +866,6 @@ Loop:
 			stageProgress = blockNum
 			inputTxNum++
 		}
-
 		if shouldGenerateChangesets {
 			aggTx := applyTx.(state2.HasAggTx).AggTx().(*state2.AggregatorRoTx)
 			aggTx.RestrictSubsetFileDeletions(true)
@@ -888,7 +898,7 @@ Loop:
 			select {
 			case <-logEvery.C:
 				stepsInDB := rawdbhelpers.IdxStepsCountV3(applyTx)
-				progress.Log(rs, in, rws, count, inputBlockNum.Load(), outputBlockNum.GetValueUint64(), outputTxNum.Load(), execRepeats.GetValueUint64(), stepsInDB)
+				progress.Log(rs, in, rws, count, totalGas, inputBlockNum.Load(), outputBlockNum.GetValueUint64(), outputTxNum.Load(), execRepeats.GetValueUint64(), stepsInDB, shouldGenerateChangesets)
 				//if applyTx.(state2.HasAggTx).AggTx().(*state2.AggregatorRoTx).CanPrune(applyTx, outputTxNum.Load()) {
 				//	//small prune cause MDBX_TXN_FULL
 				//	if _, err := applyTx.(state2.HasAggTx).AggTx().(*state2.AggregatorRoTx).PruneSmallBatches(ctx, 10*time.Hour, applyTx); err != nil {
@@ -896,7 +906,8 @@ Loop:
 				//	}
 				//}
 				// If we skip post evaluation, then we should compute root hash ASAP for fail-fast
-				if !skipPostEvaluation && (rs.SizeEstimate() < commitThreshold || inMemExec) {
+				aggregatorRo := applyTx.(state2.HasAggTx).AggTx().(*state2.AggregatorRoTx)
+				if !skipPostEvaluation && (rs.SizeEstimate() < commitThreshold || inMemExec) && !aggregatorRo.CanPrune(applyTx, outputTxNum.Load()) {
 					break
 				}
 				var (
@@ -915,7 +926,7 @@ Loop:
 				t1 = time.Since(tt) + ts
 
 				tt = time.Now()
-				if _, err := applyTx.(state2.HasAggTx).AggTx().(*state2.AggregatorRoTx).PruneSmallBatches(ctx, 10*time.Hour, applyTx); err != nil {
+				if _, err := aggregatorRo.PruneSmallBatches(ctx, 10*time.Hour, applyTx); err != nil {
 					return err
 				}
 				t3 = time.Since(tt)
@@ -928,6 +939,7 @@ Loop:
 
 					tt = time.Now()
 					applyTx.CollectMetrics()
+
 					if !useExternalTx {
 						tt = time.Now()
 						if err = applyTx.Commit(); err != nil {
@@ -955,6 +967,11 @@ Loop:
 					return nil
 				}(); err != nil {
 					return err
+				}
+
+				// on chain-tip: if batch is full then stop execution - to allow stages commit
+				if !execStage.CurrentSyncCycle.IsInitialCycle {
+					break Loop
 				}
 				logger.Info("Committed", "time", time.Since(commitStart),
 					"block", doms.BlockNum(), "txNum", doms.TxNum(),

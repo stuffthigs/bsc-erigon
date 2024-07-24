@@ -23,6 +23,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/erigontech/erigon/core/types"
+	"github.com/erigontech/erigon/rlp"
 	"io"
 	"math"
 	"net/http"
@@ -38,41 +40,41 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/ledgerwatch/erigon-lib/common"
-	"github.com/ledgerwatch/erigon-lib/common/datadir"
-	"github.com/ledgerwatch/erigon-lib/common/dbg"
-	"github.com/ledgerwatch/erigon-lib/common/dir"
-	"github.com/ledgerwatch/erigon-lib/common/disk"
-	"github.com/ledgerwatch/erigon-lib/common/mem"
-	"github.com/ledgerwatch/erigon-lib/config3"
-	"github.com/ledgerwatch/erigon-lib/downloader"
-	"github.com/ledgerwatch/erigon-lib/downloader/snaptype"
-	"github.com/ledgerwatch/erigon-lib/etl"
-	"github.com/ledgerwatch/erigon-lib/kv"
-	"github.com/ledgerwatch/erigon-lib/kv/mdbx"
-	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
-	"github.com/ledgerwatch/erigon-lib/kv/temporal"
-	"github.com/ledgerwatch/erigon-lib/log/v3"
-	"github.com/ledgerwatch/erigon-lib/metrics"
-	"github.com/ledgerwatch/erigon-lib/seg"
-	libstate "github.com/ledgerwatch/erigon-lib/state"
-	"github.com/ledgerwatch/erigon/cl/clparams"
-	"github.com/ledgerwatch/erigon/cmd/hack/tool/fromdb"
-	"github.com/ledgerwatch/erigon/cmd/utils"
-	"github.com/ledgerwatch/erigon/core/rawdb"
-	"github.com/ledgerwatch/erigon/core/rawdb/blockio"
-	coresnaptype "github.com/ledgerwatch/erigon/core/snaptype"
-	"github.com/ledgerwatch/erigon/diagnostics"
-	"github.com/ledgerwatch/erigon/eth/ethconfig"
-	"github.com/ledgerwatch/erigon/eth/ethconfig/estimate"
-	"github.com/ledgerwatch/erigon/eth/integrity"
-	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
-	"github.com/ledgerwatch/erigon/params"
-	erigoncli "github.com/ledgerwatch/erigon/turbo/cli"
-	"github.com/ledgerwatch/erigon/turbo/debug"
-	"github.com/ledgerwatch/erigon/turbo/logging"
-	"github.com/ledgerwatch/erigon/turbo/node"
-	"github.com/ledgerwatch/erigon/turbo/snapshotsync/freezeblocks"
+	"github.com/erigontech/erigon-lib/common"
+	"github.com/erigontech/erigon-lib/common/datadir"
+	"github.com/erigontech/erigon-lib/common/dbg"
+	"github.com/erigontech/erigon-lib/common/dir"
+	"github.com/erigontech/erigon-lib/common/disk"
+	"github.com/erigontech/erigon-lib/common/mem"
+	"github.com/erigontech/erigon-lib/config3"
+	"github.com/erigontech/erigon-lib/downloader"
+	"github.com/erigontech/erigon-lib/downloader/snaptype"
+	"github.com/erigontech/erigon-lib/etl"
+	"github.com/erigontech/erigon-lib/kv"
+	"github.com/erigontech/erigon-lib/kv/mdbx"
+	"github.com/erigontech/erigon-lib/kv/rawdbv3"
+	"github.com/erigontech/erigon-lib/kv/temporal"
+	"github.com/erigontech/erigon-lib/log/v3"
+	"github.com/erigontech/erigon-lib/metrics"
+	"github.com/erigontech/erigon-lib/seg"
+	libstate "github.com/erigontech/erigon-lib/state"
+	"github.com/erigontech/erigon/cl/clparams"
+	"github.com/erigontech/erigon/cmd/hack/tool/fromdb"
+	"github.com/erigontech/erigon/cmd/utils"
+	"github.com/erigontech/erigon/core/rawdb"
+	"github.com/erigontech/erigon/core/rawdb/blockio"
+	coresnaptype "github.com/erigontech/erigon/core/snaptype"
+	"github.com/erigontech/erigon/diagnostics"
+	"github.com/erigontech/erigon/eth/ethconfig"
+	"github.com/erigontech/erigon/eth/ethconfig/estimate"
+	"github.com/erigontech/erigon/eth/integrity"
+	"github.com/erigontech/erigon/eth/stagedsync/stages"
+	"github.com/erigontech/erigon/params"
+	erigoncli "github.com/erigontech/erigon/turbo/cli"
+	"github.com/erigontech/erigon/turbo/debug"
+	"github.com/erigontech/erigon/turbo/logging"
+	"github.com/erigontech/erigon/turbo/node"
+	"github.com/erigontech/erigon/turbo/snapshotsync/freezeblocks"
 )
 
 func joinFlags(lists ...[]cli.Flag) (res []cli.Flag) {
@@ -341,6 +343,13 @@ var snapshotCommand = cli.Command{
 				&cli.StringFlag{Name: "check", Usage: fmt.Sprintf("one of: %s", integrity.AllChecks)},
 				&cli.BoolFlag{Name: "failFast", Value: true, Usage: "to stop after 1st problem or print WARN log and continue check"},
 				&cli.Uint64Flag{Name: "fromStep", Value: 0, Usage: "skip files before given step"},
+			}),
+		},
+		{
+			Name:   "bodies_decrement_datafix",
+			Action: doBodiesDecrement,
+			Flags: joinFlags([]cli.Flag{
+				&utils.DataDirFlag,
 			}),
 		},
 	},
@@ -1094,4 +1103,96 @@ func openAgg(ctx context.Context, dirs datadir.Dirs, chainDB kv.RwDB, logger log
 	}
 	agg.SetCompressWorkers(estimate.CompressSnapshot.Workers())
 	return agg
+}
+
+func doBodiesDecrement(cliCtx *cli.Context) error {
+	logger, _, _, err := debug.Setup(cliCtx, true)
+	if err != nil {
+		return err
+	}
+	dirs := datadir.New(cliCtx.String(utils.DataDirFlag.Name))
+	ctx := cliCtx.Context
+	logEvery := time.NewTicker(30 * time.Second)
+	defer logEvery.Stop()
+
+	list, err := snaptype.Segments(dirs.Snap)
+	if err != nil {
+		return err
+	}
+	var l []snaptype.FileInfo
+	for _, f := range list {
+		if f.Type.Enum() != coresnaptype.Enums.Bodies {
+			continue
+		}
+		if f.From < 11_500_000 {
+			continue
+		}
+		l = append(l, f)
+	}
+	migrateSingleBody := func(srcF, dstF string) error {
+		src, err := seg.NewDecompressor(srcF)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		dst, err := seg.NewCompressor(ctx, "compress", dstF, dirs.Tmp, seg.MinPatternScore, estimate.CompressSnapshot.Workers(), log.LvlInfo, logger)
+		if err != nil {
+			return err
+		}
+		defer dst.Close()
+
+		i := 0
+		srcG := src.MakeGetter()
+		var buf []byte
+		log.Info("start", "file", src.FileName())
+		dstBuf := bytes.NewBuffer(nil)
+		for srcG.HasNext() {
+			i++
+			buf, _ = srcG.Next(buf[:0])
+			if buf == nil {
+				panic(fmt.Sprintf("nil val at file: %s\n", srcG.FileName()))
+			}
+			body := &types.BodyForStorage{}
+			if err := rlp.Decode(bytes.NewReader(buf), body); err != nil {
+				return err
+			}
+			body.BaseTxnID -= 1
+			dstBuf.Reset()
+			if err := rlp.Encode(dstBuf, body); err != nil {
+				return err
+			}
+
+			if err := dst.AddWord(dstBuf.Bytes()); err != nil {
+				return err
+			}
+
+			select {
+			case <-logEvery.C:
+				logger.Info("[bodies] progress", "f", src.FileName(), "progress", fmt.Sprintf("%dK/%dK", i/1_000, src.Count()/1_000))
+			default:
+			}
+		}
+		if err := dst.Compress(); err != nil {
+			return err
+		}
+		src.Close()
+		dst.Close()
+		os.Rename(srcF, srcF+".back")
+		os.Rename(dstF, srcF)
+		os.Remove(srcF + ".torrent")
+		os.Remove(srcF + ".idx")
+		ext := filepath.Ext(srcF)
+		withoutExt := srcF[:len(srcF)-len(ext)]
+		_ = os.Remove(withoutExt + ".idx")
+		log.Info("done", "file", src.FileName())
+		return nil
+	}
+	for _, f := range l {
+		srcF, dstF := f.Path, f.Path+"2"
+		if err := migrateSingleBody(srcF, dstF); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
