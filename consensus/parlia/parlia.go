@@ -2,7 +2,6 @@ package parlia
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -37,7 +36,6 @@ import (
 	"github.com/erigontech/erigon/consensus/parlia/finality"
 	"github.com/erigontech/erigon/core"
 	"github.com/erigontech/erigon/core/forkid"
-	"github.com/erigontech/erigon/core/rawdb"
 	"github.com/erigontech/erigon/core/state"
 	"github.com/erigontech/erigon/core/systemcontracts"
 	"github.com/erigontech/erigon/core/types"
@@ -220,7 +218,6 @@ type Parlia struct {
 	genesisHash libcommon.Hash
 	db          kv.RwDB // Database to store and retrieve snapshot checkpoints
 	BlobStore   services.BlobStorage
-	chainDb     kv.RwDB
 
 	recentSnaps *lru.ARCCache[libcommon.Hash, *Snapshot]         // Snapshots for recent block to speed up
 	signatures  *lru.ARCCache[libcommon.Hash, libcommon.Address] // Signatures of recent blocks to speed up mining
@@ -250,7 +247,6 @@ func New(
 	db kv.RwDB,
 	blobStore services.BlobStorage,
 	blockReader services.FullBlockReader,
-	chainDb kv.RwDB,
 	logger log.Logger,
 ) *Parlia {
 	// get parlia config
@@ -291,7 +287,6 @@ func New(
 		config:                     parliaConfig,
 		db:                         db,
 		BlobStore:                  blobStore,
-		chainDb:                    chainDb,
 		recentSnaps:                recentSnaps,
 		signatures:                 signatures,
 		validatorSetABIBeforeLuban: vABIBeforeLuban,
@@ -683,23 +678,18 @@ func (p *Parlia) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 	}
 
 	// All basic checks passed, verify the seal and return
-	return p.verifySeal(chain, header, parents)
+	return p.verifySeal(header, snap)
 }
 
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots
 // from.
-func (p *Parlia) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
+func (p *Parlia) verifySeal(header *types.Header, snap *Snapshot) error {
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
 	if number == 0 {
 		return errUnknownBlock
-	}
-	// Retrieve the snapshot needed to verify this header and cache it
-	snap, err := p.snapshot(chain, number-1, header.ParentHash, parents, true /* verify */)
-	if err != nil {
-		return err
 	}
 
 	// Resolve the authorization key and check against validators
@@ -743,14 +733,7 @@ func (p *Parlia) snapshot(chain consensus.ChainHeaderReader, number uint64, hash
 	var (
 		headers []*types.Header
 		snap    *Snapshot
-		doLog   bool
 	)
-
-	if s, ok := p.recentSnaps.Get(hash); ok {
-		snap = s
-	} else {
-		doLog = true
-	}
 
 	for snap == nil {
 		// If an in-memory snapshot was found, use that
@@ -762,7 +745,7 @@ func (p *Parlia) snapshot(chain consensus.ChainHeaderReader, number uint64, hash
 		// If an on-disk checkpoint snapshot can be found, use that
 		if number%CheckpointInterval == 0 {
 			if s, err := loadSnapshot(p.config, p.signatures, p.db, number, hash); err == nil {
-				//log.Trace("Loaded snapshot from disk", "number", number, "hash", hash)
+				p.logger.Trace("Loaded snapshot from disk", "number", number, "hash", hash)
 				snap = s
 				if !verify || snap != nil {
 					break
@@ -799,10 +782,6 @@ func (p *Parlia) snapshot(chain consensus.ChainHeaderReader, number uint64, hash
 			}
 			parents = parents[:len(parents)-1]
 		} else {
-			if doLog && number%100_000 == 0 {
-				// No explicit parents (or no more left), reach out to the database
-				p.logger.Info("[parlia] snapshots build, gather headers", "block", number)
-			}
 			header = chain.GetHeader(hash, number)
 			if header == nil {
 				return nil, consensus.ErrUnknownAncestor
@@ -822,18 +801,17 @@ func (p *Parlia) snapshot(chain consensus.ChainHeaderReader, number uint64, hash
 		headers[i], headers[len(headers)-1-i] = headers[len(headers)-1-i], headers[i]
 	}
 
-	snap, err := snap.apply(headers, chain, parents, p.chainConfig, doLog)
+	snap, err := snap.apply(headers, chain, parents, p.chainConfig, p.recentSnaps)
 	if err != nil {
 		return nil, err
 	}
-	p.recentSnaps.Add(snap.Hash, snap)
 
 	// If we've generated a new checkpoint snapshot, save to disk
 	if verify && snap.Number%CheckpointInterval == 0 && len(headers) > 0 {
 		if err = snap.store(p.db); err != nil {
 			return nil, err
 		}
-		//log.Trace("Stored snapshot to disk", "number", snap.Number, "hash", snap.Hash)
+		p.logger.Trace("Stored snapshot to disk", "number", snap.Number, "hash", snap.Hash)
 	}
 	return snap, err
 }
@@ -1200,82 +1178,6 @@ func (p *Parlia) Authorize(val libcommon.Address, signFn SignFn) {
 // Note, the method returns immediately and will send the result async. More
 // than one result may also be returned depending on the consensus algorithm.
 func (p *Parlia) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
-	header := block.Header()
-
-	// Sealing the genesis block is not supported
-	number := header.Number.Uint64()
-	if number == 0 {
-		return errUnknownBlock
-	}
-	// For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
-	if p.config.Period == 0 && len(block.Transactions()) == 0 {
-		p.logger.Info("[parlia] Sealing paused, waiting for transactions")
-		return nil
-	}
-	// Don't hold the val fields for the entire sealing procedure
-	p.signerLock.RLock()
-	val, signFn := p.val, p.signFn
-	p.signerLock.RUnlock()
-
-	snap, err := p.snapshot(chain, number-1, header.ParentHash, nil, false /* verify */)
-	if err != nil {
-		return err
-	}
-
-	// Bail out if we're unauthorized to sign a block
-	if _, authorized := snap.Validators[val]; !authorized {
-		return fmt.Errorf("parlia.Seal: %w", errUnauthorizedValidator)
-	}
-
-	// If we're amongst the recent signers, wait for the next block
-	for seen, recent := range snap.Recents {
-		if recent == val {
-			// Signer is among recent, only wait if the current block doesn't shift it out
-			if limit := uint64(len(snap.Validators)/2 + 1); number < limit || seen > number-limit {
-				p.logger.Info("[parlia] Signed recently, must wait for others")
-				return nil
-			}
-		}
-	}
-
-	// Sweet, the protocol permits us to sign the block, wait for our time
-	delay := p.delayForRamanujanFork(snap, header)
-
-	p.logger.Info("Sealing block with", "number", number, "delay", delay, "headerDifficulty", header.Difficulty, "val", val.Hex(), "headerHash", header.Hash().Hex(), "gasUsed", header.GasUsed, "block txn number", block.Transactions().Len(), "State Root", header.Root)
-
-	// Sign all the things!
-	sig, err := signFn(val, crypto.Keccak256(parliaRLP(header, p.chainConfig.ChainID)), p.chainConfig.ChainID)
-	if err != nil {
-		return err
-	}
-	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
-
-	// Wait until sealing is terminated or delay timeout.
-	//log.Trace("Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
-	go func() {
-		select {
-		case <-stop:
-			return
-		case <-time.After(delay):
-		}
-		if p.shouldWaitForCurrentBlockProcess(p.chainDb, header, snap) {
-			p.logger.Info("[parlia] Waiting for received in turn block to process")
-			select {
-			case <-stop:
-				p.logger.Info("[parlia] Received block process finished, abort block seal")
-				return
-			case <-time.After(time.Duration(processBackOffTime) * time.Second):
-				p.logger.Info("[parlia] Process backoff time exhausted, start to seal block")
-			}
-		}
-
-		select {
-		case results <- block.WithSeal(header):
-		default:
-			p.logger.Warn("[parlia] Sealing result is not read by miner", "sealhash", types.SealHash(header, p.chainConfig.ChainID))
-		}
-	}()
-
 	return nil
 }
 
@@ -1376,30 +1278,6 @@ func (p *Parlia) IsSystemContract(to *libcommon.Address) bool {
 		return false
 	}
 	return isToSystemContract(*to)
-}
-
-func (p *Parlia) shouldWaitForCurrentBlockProcess(chainDb kv.RwDB, header *types.Header, snap *Snapshot) bool {
-	if header.Difficulty.Cmp(diffInTurn) == 0 {
-		return false
-	}
-
-	roTx, err := chainDb.BeginRo(context.Background())
-	if err != nil {
-		return false
-	}
-	defer roTx.Rollback()
-	hash := rawdb.ReadHeadHeaderHash(roTx)
-	number := rawdb.ReadHeaderNumber(roTx, hash)
-
-	highestVerifiedHeader := rawdb.ReadHeader(roTx, hash, *number)
-	if highestVerifiedHeader == nil {
-		return false
-	}
-
-	if header.ParentHash == highestVerifiedHeader.ParentHash {
-		return true
-	}
-	return false
 }
 
 func (p *Parlia) EnoughDistance(chain consensus.ChainReader, header *types.Header) bool {
@@ -1728,5 +1606,14 @@ func (c *Parlia) GetTransferFunc() evmtypes.TransferFunc {
 }
 
 func (c *Parlia) GetPostApplyMessageFunc() evmtypes.PostApplyMessageFunc {
+	return nil
+}
+
+func (p *Parlia) blockTimeVerifyForRamanujanFork(snap *Snapshot, header, parent *types.Header) error {
+	if p.chainConfig.IsRamanujan(header.Number.Uint64()) {
+		if header.Time < parent.Time+p.config.Period+backOffTime(snap, header, header.Coinbase, p.chainConfig) {
+			return fmt.Errorf("header %d, time %d, now %d, period: %d, backof: %d, %w", header.Number.Uint64(), header.Time, time.Now().Unix(), p.config.Period, backOffTime(snap, header, header.Coinbase, p.chainConfig), consensus.ErrFutureBlock)
+		}
+	}
 	return nil
 }
