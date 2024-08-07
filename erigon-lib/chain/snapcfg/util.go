@@ -37,7 +37,6 @@ import (
 
 var (
 	Mainnet    = fromToml(snapshothashes.Mainnet)
-	Holesky    = fromToml(snapshothashes.Holesky)
 	Sepolia    = fromToml(snapshothashes.Sepolia)
 	Amoy       = fromToml(snapshothashes.Amoy)
 	BorMainnet = fromToml(snapshothashes.BorMainnet)
@@ -359,7 +358,6 @@ func (c Cfg) MergeLimit(t snaptype.Enum, fromBlock uint64) uint64 {
 
 var knownPreverified = map[string]Preverified{
 	networkname.MainnetChainName:    Mainnet,
-	networkname.HoleskyChainName:    Holesky,
 	networkname.SepoliaChainName:    Sepolia,
 	networkname.AmoyChainName:       Amoy,
 	networkname.BorMainnetChainName: BorMainnet,
@@ -438,7 +436,6 @@ var KnownWebseeds = map[string][]string{
 	networkname.BorMainnetChainName: webseedsParse(webseed.BorMainnet),
 	networkname.GnosisChainName:     webseedsParse(webseed.Gnosis),
 	networkname.ChiadoChainName:     webseedsParse(webseed.Chiado),
-	networkname.HoleskyChainName:    webseedsParse(webseed.Holesky),
 	networkname.BSCChainName:        webseedsParse(webseed.Bsc),
 	networkname.ChapelChainName:     webseedsParse(webseed.Chapel),
 }
@@ -460,12 +457,13 @@ func LoadRemotePreverified() bool {
 
 	// Re-load the preverified hashes
 	Mainnet = fromToml(snapshothashes.Mainnet)
-	Holesky = fromToml(snapshothashes.Holesky)
 	Sepolia = fromToml(snapshothashes.Sepolia)
 	Amoy = fromToml(snapshothashes.Amoy)
 	BorMainnet = fromToml(snapshothashes.BorMainnet)
 	Gnosis = fromToml(snapshothashes.Gnosis)
 	Chiado = fromToml(snapshothashes.Chiado)
+	Bsc = fromToml(snapshothashes.Bsc)
+	Chapel = fromToml(snapshothashes.Chapel)
 	// Update the known preverified hashes
 	KnownWebseeds = map[string][]string{
 		networkname.MainnetChainName:    webseedsParse(webseed.Mainnet),
@@ -474,17 +472,19 @@ func LoadRemotePreverified() bool {
 		networkname.BorMainnetChainName: webseedsParse(webseed.BorMainnet),
 		networkname.GnosisChainName:     webseedsParse(webseed.Gnosis),
 		networkname.ChiadoChainName:     webseedsParse(webseed.Chiado),
-		networkname.HoleskyChainName:    webseedsParse(webseed.Holesky),
+		networkname.BSCChainName:        webseedsParse(webseed.Bsc),
+		networkname.ChapelChainName:     webseedsParse(webseed.Chapel),
 	}
 
 	knownPreverified = map[string]Preverified{
 		networkname.MainnetChainName:    Mainnet,
-		networkname.HoleskyChainName:    Holesky,
 		networkname.SepoliaChainName:    Sepolia,
 		networkname.AmoyChainName:       Amoy,
 		networkname.BorMainnetChainName: BorMainnet,
 		networkname.GnosisChainName:     Gnosis,
 		networkname.ChiadoChainName:     Chiado,
+		networkname.BSCChainName:        Bsc,
+		networkname.ChapelChainName:     Chapel,
 	}
 	return couldFetch
 }
@@ -500,8 +500,6 @@ func GetToml(networkName string) []byte {
 	switch networkName {
 	case networkname.MainnetChainName:
 		return snapshothashes.Mainnet
-	case networkname.HoleskyChainName:
-		return snapshothashes.Holesky
 	case networkname.SepoliaChainName:
 		return snapshothashes.Sepolia
 	case networkname.AmoyChainName:
@@ -512,7 +510,10 @@ func GetToml(networkName string) []byte {
 		return snapshothashes.Gnosis
 	case networkname.ChiadoChainName:
 		return snapshothashes.Chiado
-
+	case networkname.BSCChainName:
+		return snapshothashes.Bsc
+	case networkname.ChapelChainName:
+		return snapshothashes.Chapel
 	default:
 		return nil
 	}

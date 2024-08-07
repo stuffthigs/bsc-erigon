@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/erigontech/erigon-lib/kv"
+	"math"
 	"math/big"
 	"reflect"
 
@@ -308,7 +309,7 @@ func (s *Merge) verifyHeader(chain consensus.ChainHeaderReader, header, parent *
 		return consensus.ErrUnexpectedWithdrawals
 	}
 
-	if !chain.Config().IsCancun(0, header.Time) {
+	if !chain.Config().IsCancun(math.MaxUint64, header.Time) {
 		return misc.VerifyAbsenceOfCancunHeaderFields(header)
 	}
 	if err := misc.VerifyPresenceOfCancunHeaderFields(header); err != nil {
@@ -352,7 +353,7 @@ func (s *Merge) Initialize(config *chain.Config, chain consensus.ChainHeaderRead
 	if !misc.IsPoSHeader(header) {
 		s.eth1Engine.Initialize(config, chain, header, state, syscall, logger, tracer)
 	}
-	if chain.Config().IsCancun(0, header.Time) {
+	if chain.Config().IsCancun(math.MaxUint64, header.Time) {
 		misc.ApplyBeaconRootEip4788(header.ParentBeaconBlockRoot, func(addr libcommon.Address, data []byte) ([]byte, error) {
 			return syscall(addr, data, state, header, false /* constCall */)
 		}, tracer)

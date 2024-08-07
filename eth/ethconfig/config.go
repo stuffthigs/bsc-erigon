@@ -21,7 +21,6 @@
 package ethconfig
 
 import (
-	"github.com/erigontech/erigon-lib/chain/networkname"
 	"math/big"
 	"os"
 	"os/user"

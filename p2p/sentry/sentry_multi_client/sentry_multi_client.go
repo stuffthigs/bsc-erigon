@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"github.com/c2h5oh/datasize"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -38,7 +37,6 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/erigontech/erigon-lib/chain"
-	"github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/dbg"
 	"github.com/erigontech/erigon-lib/direct"
 	"github.com/erigontech/erigon-lib/gointerfaces/grpcutil"
@@ -354,14 +352,6 @@ func NewMultiClient(
 	if parlia, ok := engine.(*parlia.Parlia); ok {
 		blockReader.WithSidecars(parlia.BlobStore)
 	}
-
-	receiptsCacheLimit := 32
-	receiptsCache, err := lru.New[common.Hash, []*types.Receipt](receiptsCacheLimit)
-	if err != nil {
-		return nil, err
-	}
-
-	receiptsGenerator := receipts.NewGenerator(receiptsCache, blockReader, engine)
 
 	cs := &MultiClient{
 		Hd:                                hd,

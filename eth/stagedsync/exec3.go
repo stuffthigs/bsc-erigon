@@ -451,7 +451,7 @@ func ExecV3(ctx context.Context,
 				case <-logEvery.C:
 					stepsInDB := rawdbhelpers.IdxStepsCountV3(tx)
 
-					progress.Log(rs, in, rws, rs.DoneCount(),0, inputBlockNum.Load(), outputBlockNum.GetValueUint64(), outputTxNum.Load(), execRepeats.GetValueUint64(), stepsInDB, shouldGenerateChangesets)
+					progress.Log(rs, in, rws, rs.DoneCount(), 0, inputBlockNum.Load(), outputBlockNum.GetValueUint64(), outputTxNum.Load(), execRepeats.GetValueUint64(), stepsInDB, shouldGenerateChangesets)
 					if agg.HasBackgroundFilesBuild() {
 						logger.Info(fmt.Sprintf("[%s] Background files build", execStage.LogPrefix()), "progress", agg.BackgroundProgress())
 					}

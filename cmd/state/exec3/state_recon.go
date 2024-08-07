@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/erigontech/erigon-lib/common/datadir"
+	"github.com/erigontech/erigon/core/systemcontracts"
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"

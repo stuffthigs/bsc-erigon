@@ -24,8 +24,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/erigontech/erigon/cl/phase1/core/checkpoint_sync"
 	"github.com/erigontech/erigon/consensus/parlia"
 	parliafinality "github.com/erigontech/erigon/consensus/parlia/finality"
+	"io/fs"
 	"math"
 	"math/big"
 	"net"
@@ -37,8 +39,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/karrick/godirwalk"
 
 	"github.com/erigontech/erigon-lib/common/dir"
 
@@ -86,7 +86,6 @@ import (
 	"github.com/erigontech/erigon-lib/wrap"
 	"github.com/erigontech/erigon/cl/clparams"
 	"github.com/erigontech/erigon/cl/persistence/format/snapshot_format/getters"
-	clcore "github.com/erigontech/erigon/cl/phase1/core"
 	executionclient "github.com/erigontech/erigon/cl/phase1/execution_client"
 	"github.com/erigontech/erigon/cl/utils/eth_clock"
 	"github.com/erigontech/erigon/cmd/caplin/caplin1"
@@ -139,7 +138,6 @@ import (
 	"github.com/erigontech/erigon/turbo/shards"
 	"github.com/erigontech/erigon/turbo/silkworm"
 	"github.com/erigontech/erigon/turbo/snapshotsync/freezeblocks"
-	"github.com/erigontech/erigon/turbo/snapshotsync/snap"
 	stages2 "github.com/erigontech/erigon/turbo/stages"
 	"github.com/erigontech/erigon/turbo/stages/headerdownload"
 )
@@ -684,7 +682,6 @@ func New(ctx context.Context, stack *node.Node, config *ethconfig.Config, logger
 		blobStore = parlia.BlobStore
 	}
 
-	loopBreakCheck := stages2.NewLoopBreakCheck(config, nil)
 	// proof-of-work mining
 	mining := stagedsync.New(
 		config.Sync,
