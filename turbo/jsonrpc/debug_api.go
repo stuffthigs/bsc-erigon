@@ -18,6 +18,7 @@ package jsonrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/erigontech/erigon/consensus"
 	"github.com/erigontech/erigon/eth/stagedsync"
@@ -91,7 +92,7 @@ func (api *PrivateDebugAPIImpl) StorageRangeAt(ctx context.Context, blockHash co
 
 	number := rawdb.ReadHeaderNumber(tx, blockHash)
 	if number == nil {
-		return StorageRangeResult{}, fmt.Errorf("block not found")
+		return StorageRangeResult{}, errors.New("block not found")
 	}
 	minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
 	if err != nil {
@@ -112,7 +113,7 @@ func (api *PrivateDebugAPIImpl) AccountRange(ctx context.Context, blockNrOrHash 
 
 	if number, ok := blockNrOrHash.Number(); ok {
 		if number == rpc.PendingBlockNumber {
-			return state.IteratorDump{}, fmt.Errorf("accountRange for pending block not supported")
+			return state.IteratorDump{}, errors.New("accountRange for pending block not supported")
 		}
 		if number == rpc.LatestBlockNumber {
 			var err error
@@ -343,7 +344,7 @@ func (api *PrivateDebugAPIImpl) AccountAt(ctx context.Context, blockHash common.
 	canonicalHash, _ := api._blockReader.CanonicalHash(ctx, tx, *number)
 	isCanonical := canonicalHash == blockHash
 	if !isCanonical {
-		return nil, fmt.Errorf("block hash is not canonical")
+		return nil, errors.New("block hash is not canonical")
 	}
 
 	minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
@@ -398,7 +399,7 @@ func (api *PrivateDebugAPIImpl) GetRawHeader(ctx context.Context, blockNrOrHash 
 		return nil, err
 	}
 	if header == nil {
-		return nil, fmt.Errorf("header not found")
+		return nil, errors.New("header not found")
 	}
 	return rlp.EncodeToBytes(header)
 }
@@ -418,7 +419,7 @@ func (api *PrivateDebugAPIImpl) GetRawBlock(ctx context.Context, blockNrOrHash r
 		return nil, err
 	}
 	if block == nil {
-		return nil, fmt.Errorf("block not found")
+		return nil, errors.New("block not found")
 	}
 	return rlp.EncodeToBytes(block)
 }

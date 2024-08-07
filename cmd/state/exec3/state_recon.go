@@ -20,7 +20,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/erigontech/erigon/core/systemcontracts"
+	"github.com/erigontech/erigon-lib/common/datadir"
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -250,8 +250,9 @@ type ReconWorker struct {
 	isPoSA      bool
 	posa        consensus.PoSA
 
-	evm *vm.EVM
-	ibs *state.IntraBlockState
+	evm  *vm.EVM
+	ibs  *state.IntraBlockState
+	dirs datadir.Dirs
 }
 
 func NewReconWorker(lock sync.Locker, ctx context.Context, rs *state.ReconState,
@@ -288,6 +289,10 @@ func (rw *ReconWorker) SetChainTx(chainTx kv.Tx) {
 	rw.stateWriter.SetChainTx(chainTx)
 }
 
+func (rw *ReconWorker) SetDirs(dirs datadir.Dirs) {
+	rw.dirs = dirs
+}
+
 func (rw *ReconWorker) Run() error {
 	for txTask, ok, err := rw.rs.Schedule(rw.ctx); ok || err != nil; txTask, ok, err = rw.rs.Schedule(rw.ctx) {
 		if err != nil {
@@ -316,7 +321,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 	if txTask.BlockNum == 0 && txTask.TxIndex == -1 {
 		//fmt.Printf("txNum=%d, blockNum=%d, Genesis\n", txTask.TxNum, txTask.BlockNum)
 		// Genesis block
-		_, ibs, err = core.GenesisToBlock(rw.genesis, "", rw.logger)
+		_, ibs, err = core.GenesisToBlock(rw.genesis, rw.dirs, rw.logger)
 		if err != nil {
 			return err
 		}

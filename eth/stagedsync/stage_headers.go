@@ -69,8 +69,7 @@ type HeadersCfg struct {
 	blockWriter   *blockio.BlockWriter
 	notifications *shards.Notifications
 
-	syncConfig     ethconfig.Sync
-	loopBreakCheck func(int) bool
+	syncConfig ethconfig.Sync
 }
 
 func StageHeadersCfg(
@@ -88,7 +87,7 @@ func StageHeadersCfg(
 	blockWriter *blockio.BlockWriter,
 	tmpdir string,
 	notifications *shards.Notifications,
-	loopBreakCheck func(int) bool) HeadersCfg {
+) HeadersCfg {
 	return HeadersCfg{
 		db:                db,
 		hd:                headerDownload,
@@ -104,7 +103,6 @@ func StageHeadersCfg(
 		blockReader:       blockReader,
 		blockWriter:       blockWriter,
 		notifications:     notifications,
-		loopBreakCheck:    loopBreakCheck,
 	}
 }
 
@@ -118,7 +116,7 @@ func SpawnStageHeaders(s *StageState, u Unwinder, ctx context.Context, tx kv.RwT
 		}
 		defer tx.Rollback()
 	}
-	if s.CurrentSyncCycle.IsInitialCycle && cfg.blockReader.FreezingCfg().Enabled {
+	if s.CurrentSyncCycle.IsInitialCycle {
 		if err := cfg.hd.AddHeadersFromSnapshot(tx, cfg.blockReader); err != nil {
 			return err
 		}
@@ -267,15 +265,8 @@ Loop:
 			}
 		}
 
-		if cfg.syncConfig.LoopBlockLimit > 0 {
-			if bodyProgress, err := stages.GetStageProgress(tx, stages.Bodies); err == nil {
-				if cfg.hd.Progress() > bodyProgress && cfg.hd.Progress()-bodyProgress > uint64(cfg.syncConfig.LoopBlockLimit*2) {
-					break
-				}
-			}
-		}
-
-		if cfg.loopBreakCheck != nil && cfg.loopBreakCheck(int(cfg.hd.Progress()-startProgress)) {
+		loopBlockLimit := uint64(cfg.syncConfig.LoopBlockLimit)
+		if loopBlockLimit > 0 && cfg.hd.Progress() > startProgress+loopBlockLimit {
 			break
 		}
 
