@@ -22,8 +22,6 @@ import (
 
 	"github.com/erigontech/erigon-lib/chain/networkname"
 	libcommon "github.com/erigontech/erigon-lib/common"
-	_ "github.com/erigontech/erigon-lib/common/hexutility"
-	_ "github.com/erigontech/erigon/polygon/bor/borcfg"
 
 	"github.com/erigontech/erigon/core/systemcontracts"
 	"github.com/erigontech/erigon/core/types"
@@ -32,7 +30,7 @@ import (
 
 func init() {
 	// Initialise SystemContractCodeLookup
-	for _, chainName := range []string{networkname.BSCChainName, networkname.ChapelChainName, networkname.RialtoChainName, networkname.BorMainnetChainName, networkname.MumbaiChainName, networkname.BorDevnetChainName} {
+	for _, chainName := range []string{networkname.BSCChainName, networkname.ChapelChainName, networkname.RialtoChainName, networkname.BorMainnetChainName, networkname.BorDevnetChainName} {
 		byChain := map[libcommon.Address][]libcommon.CodeRecord{}
 		systemcontracts.SystemContractCodeLookup[chainName] = byChain
 		// Apply genesis with the block number 0

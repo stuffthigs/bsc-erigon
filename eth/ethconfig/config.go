@@ -21,7 +21,6 @@
 package ethconfig
 
 import (
-	"github.com/erigontech/erigon-lib/chain/networkname"
 	"math/big"
 	"os"
 	"os/user"
@@ -75,7 +74,6 @@ var LightClientGPO = gaspricecfg.Config{
 // Defaults contains default settings for use on the Ethereum main net.
 var Defaults = Config{
 	Sync: Sync{
-		UseSnapshots:               true,
 		ExecWorkerCount:            estimate.ReconstituteState.WorkersHalf(), //only half of CPU, other half will spend for snapshots build/merge/prune
 		ReconWorkerCount:           estimate.ReconstituteState.Workers(),
 		BodyCacheLimit:             256 * 1024 * 1024,
@@ -105,7 +103,6 @@ var Defaults = Config{
 
 	ImportMode: false,
 	Snapshot: BlocksFreezing{
-		Enabled:    true,
 		KeepBlocks: false,
 		ProduceE2:  true,
 		ProduceE3:  true,
@@ -139,7 +136,6 @@ func init() {
 //go:generate gencodec -dir . -type Config -formats toml -out gen_config.go
 
 type BlocksFreezing struct {
-	Enabled        bool
 	KeepBlocks     bool // produce new snapshots of blocks but don't remove blocks from DB
 	ProduceE2      bool // produce new block files
 	ProduceE3      bool // produce new state files
@@ -150,9 +146,6 @@ type BlocksFreezing struct {
 
 func (s BlocksFreezing) String() string {
 	var out []string
-	if s.Enabled {
-		out = append(out, "--snapshots=true")
-	}
 	if s.KeepBlocks {
 		out = append(out, "--"+FlagSnapKeepBlocks+"=true")
 	}
@@ -168,8 +161,8 @@ var (
 	FlagSnapStateStop  = "snap.state.stop"
 )
 
-func NewSnapCfg(enabled, keepBlocks, produceE2, produceE3 bool) BlocksFreezing {
-	return BlocksFreezing{Enabled: enabled, KeepBlocks: keepBlocks, ProduceE2: produceE2, ProduceE3: produceE3}
+func NewSnapCfg(keepBlocks, produceE2, produceE3 bool) BlocksFreezing {
+	return BlocksFreezing{KeepBlocks: keepBlocks, ProduceE2: produceE2, ProduceE3: produceE3}
 }
 
 // Config contains configuration options for ETH protocol.
@@ -276,8 +269,6 @@ type Config struct {
 }
 
 type Sync struct {
-	UseSnapshots bool
-
 	// LoopThrottle sets a minimum time between staged loop iterations
 	LoopThrottle     time.Duration
 	ExecWorkerCount  int
@@ -293,17 +284,3 @@ type Sync struct {
 	UploadFrom       rpc.BlockNumber
 	FrozenBlockLimit uint64
 }
-
-// Chains where snapshots are enabled by default
-var ChainsWithSnapshots = map[string]struct{}{
-	networkname.MainnetChainName:    {},
-	networkname.SepoliaChainName:    {},
-	networkname.MumbaiChainName:     {},
-	networkname.AmoyChainName:       {},
-	networkname.BSCChainName:        {},
-	networkname.BorMainnetChainName: {},
-	networkname.GnosisChainName:     {},
-	networkname.ChiadoChainName:     {},
-}
-
-func UseSnapshotsByChainName(chain string) bool { return true }

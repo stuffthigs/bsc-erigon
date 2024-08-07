@@ -19,6 +19,7 @@ package eth1
 import (
 	"context"
 	"fmt"
+	"math"
 	"reflect"
 
 	"github.com/holiman/uint256"
@@ -33,14 +34,15 @@ import (
 	"github.com/erigontech/erigon/rpc"
 	"github.com/erigontech/erigon/turbo/builder"
 	"github.com/erigontech/erigon/turbo/engineapi/engine_helpers"
+	"github.com/erigontech/erigon/turbo/engineapi/engine_types"
 	"github.com/erigontech/erigon/turbo/execution/eth1/eth1_utils"
 )
 
 func (e *EthereumExecutionModule) checkWithdrawalsPresence(time uint64, withdrawals []*types.Withdrawal) error {
-	if !e.config.IsShanghai(0, time) && withdrawals != nil {
+	if !e.config.IsShanghai(math.MaxUint64, time) && withdrawals != nil {
 		return &rpc.InvalidParamsError{Message: "withdrawals before shanghai"}
 	}
-	if e.config.IsShanghai(0, time) && withdrawals == nil {
+	if e.config.IsShanghai(math.MaxUint64, time) && withdrawals == nil {
 		return &rpc.InvalidParamsError{Message: "missing withdrawals list"}
 	}
 	return nil
@@ -58,7 +60,6 @@ func (e *EthereumExecutionModule) evictOldBuilders() {
 // Missing: NewPayload, AssembleBlock
 func (e *EthereumExecutionModule) AssembleBlock(ctx context.Context, req *execution.AssembleBlockRequest) (*execution.AssembleBlockResponse, error) {
 	if !e.semaphore.TryAcquire(1) {
-		e.logger.Warn("ethereumExecutionModule.AssembleBlock: ExecutionStatus_Busy")
 		return &execution.AssembleBlockResponse{
 			Id:   0,
 			Busy: true,
@@ -127,7 +128,6 @@ func blockValue(br *types.BlockWithReceipts, baseFee *uint256.Int) *uint256.Int 
 
 func (e *EthereumExecutionModule) GetAssembledBlock(ctx context.Context, req *execution.GetAssembledBlockRequest) (*execution.GetAssembledBlockResponse, error) {
 	if !e.semaphore.TryAcquire(1) {
-		e.logger.Warn("ethereumExecutionModule.GetAssembledBlock: ExecutionStatus_Busy")
 		return &execution.GetAssembledBlockResponse{
 			Busy: true,
 		}, nil
@@ -183,6 +183,13 @@ func (e *EthereumExecutionModule) GetAssembledBlock(ctx context.Context, req *ex
 		payload.Version = 3
 		payload.BlobGasUsed = header.BlobGasUsed
 		payload.ExcessBlobGas = header.ExcessBlobGas
+	}
+	reqs := block.Requests()
+	if reqs != nil {
+		payload.Version = 4
+		payload.DepositRequests = engine_types.ConvertDepositRequestsToRpc(reqs.Deposits())
+		payload.WithdrawalRequests = engine_types.ConvertWithdrawalRequestsToRpc(reqs.Withdrawals())
+		payload.ConsolidationRequests = engine_types.ConvertConsolidationRequestsToRpc(reqs.Consolidations())
 	}
 
 	blockValue := blockValue(blockWithReceipts, baseFee)

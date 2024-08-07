@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/erigontech/erigon-lib/kv"
+	"math"
 	"math/big"
 	"reflect"
 
@@ -209,13 +210,13 @@ func (s *Merge) Finalize(config *chain.Config, header *types.Header, state *stat
 				return nil, nil, nil, fmt.Errorf("error: invalid requests root hash in header, expected: %v, got :%v", header.RequestsRoot, rh)
 			}
 			if !reflect.DeepEqual(requestsInBlock.Deposits(), depositReqs.Deposits()) {
-				return nil, nil, nil, fmt.Errorf("error: invalid EIP-6110 Deposit Requests in block")
+				return nil, nil, nil, errors.New("error: invalid EIP-6110 Deposit Requests in block")
 			}
 			if !reflect.DeepEqual(requestsInBlock.Withdrawals(), withdrawalReqs.Withdrawals()) {
-				return nil, nil, nil, fmt.Errorf("error: invalid EIP-7002 Withdrawal requests in block")
+				return nil, nil, nil, errors.New("error: invalid EIP-7002 Withdrawal requests in block")
 			}
 			if !reflect.DeepEqual(requestsInBlock.Consolidations(), consolidations.Consolidations()) {
-				return nil, nil, nil, fmt.Errorf("error: invalid EIP-7251 Consolidation requests in block")
+				return nil, nil, nil, errors.New("error: invalid EIP-7251 Consolidation requests in block")
 			}
 		}
 	}
@@ -302,13 +303,13 @@ func (s *Merge) verifyHeader(chain consensus.ChainHeaderReader, header, parent *
 	// Verify existence / non-existence of withdrawalsHash
 	shanghai := chain.Config().IsShanghai(header.Number.Uint64(), header.Time)
 	if shanghai && header.WithdrawalsHash == nil {
-		return fmt.Errorf("missing withdrawalsHash")
+		return errors.New("missing withdrawalsHash")
 	}
 	if !shanghai && header.WithdrawalsHash != nil {
 		return consensus.ErrUnexpectedWithdrawals
 	}
 
-	if !chain.Config().IsCancun(0, header.Time) {
+	if !chain.Config().IsCancun(math.MaxUint64, header.Time) {
 		return misc.VerifyAbsenceOfCancunHeaderFields(header)
 	}
 	if err := misc.VerifyPresenceOfCancunHeaderFields(header); err != nil {
@@ -322,7 +323,7 @@ func (s *Merge) verifyHeader(chain consensus.ChainHeaderReader, header, parent *
 	// Verify existence / non-existence of requestsRoot
 	prague := chain.Config().IsPrague(header.Time)
 	if prague && header.RequestsRoot == nil {
-		return fmt.Errorf("missing requestsRoot")
+		return errors.New("missing requestsRoot")
 	}
 	if !prague && header.RequestsRoot != nil {
 		return consensus.ErrUnexpectedRequests
@@ -352,7 +353,7 @@ func (s *Merge) Initialize(config *chain.Config, chain consensus.ChainHeaderRead
 	if !misc.IsPoSHeader(header) {
 		s.eth1Engine.Initialize(config, chain, header, state, syscall, logger, tracer)
 	}
-	if chain.Config().IsCancun(0, header.Time) {
+	if chain.Config().IsCancun(math.MaxUint64, header.Time) {
 		misc.ApplyBeaconRootEip4788(header.ParentBeaconBlockRoot, func(addr libcommon.Address, data []byte) ([]byte, error) {
 			return syscall(addr, data, state, header, false /* constCall */)
 		}, tracer)
