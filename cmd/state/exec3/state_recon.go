@@ -376,7 +376,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 				systemCall := func(ibs *state.IntraBlockState, index int) ([]byte, bool, error) {
 					vmConfig := vm.Config{NoReceipts: true, SkipAnalysis: txTask.SkipAnalysis}
 					msg := txTask.TxAsMessage
-					ibs.SetTxContext(txTask.Tx.Hash(), txTask.BlockHash, txTask.TxIndex)
+					ibs.SetTxContext(txTask.Tx.Hash(), txTask.TxIndex)
 					if rw.chainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 						rules := rw.chainConfig.Rules(header.Number.Uint64(), header.Time)
 						ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)

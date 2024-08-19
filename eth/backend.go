@@ -24,7 +24,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/erigontech/erigon/cl/phase1/core/checkpoint_sync"
 	"github.com/erigontech/erigon/consensus/parlia"
 	parliafinality "github.com/erigontech/erigon/consensus/parlia/finality"
 	"io/fs"

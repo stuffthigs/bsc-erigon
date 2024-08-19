@@ -124,7 +124,7 @@ func ExecuteBlockEphemerallyForBSC(
 				continue
 			}
 		}
-		ibs.SetTxContext(tx.Hash(), block.Hash(), i)
+		ibs.SetTxContext(tx.Hash(), i)
 		writeTrace := false
 		if vmConfig.Debug && vmConfig.Tracer == nil {
 			tracer, err := getTracer(i, tx.Hash())

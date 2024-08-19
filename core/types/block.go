@@ -748,7 +748,7 @@ type Block struct {
 	requests     Requests
 
 	// caches
-	hash atomic.Value
+	size atomic.Uint64
 
 	// sidecars provides DA check
 	sidecars BlobSidecars

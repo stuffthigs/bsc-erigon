@@ -585,6 +585,7 @@ func NewReaderV3(tx kv.TemporalGetter) *ReaderV3 {
 
 func (r *ReaderV3) DiscardReadList()                     {}
 func (r *ReaderV3) SetTxNum(txNum uint64)                { r.txNum = txNum }
+func (r *ReaderV3) GetTxNum() uint64                     { return r.txNum }
 func (r *ReaderV3) SetTx(tx kv.Tx)                       {}
 func (r *ReaderV3) ReadSet() map[string]*libstate.KvList { return nil }
 func (r *ReaderV3) SetTrace(trace bool)                  { r.trace = trace }
@@ -679,6 +680,7 @@ func NewReaderParallelV3(sd *libstate.SharedDomains) *ReaderParallelV3 {
 
 func (r *ReaderParallelV3) DiscardReadList()                     { r.discardReadList = true }
 func (r *ReaderParallelV3) SetTxNum(txNum uint64)                { r.txNum = txNum }
+func (r *ReaderParallelV3) GetTxNum() uint64                     { return r.txNum }
 func (r *ReaderParallelV3) SetTx(tx kv.Tx)                       {}
 func (r *ReaderParallelV3) ReadSet() map[string]*libstate.KvList { return r.readLists }
 func (r *ReaderParallelV3) SetTrace(trace bool)                  { r.trace = trace }

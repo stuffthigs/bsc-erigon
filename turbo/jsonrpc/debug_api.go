@@ -130,16 +130,20 @@ func (api *PrivateDebugAPIImpl) AccountRange(ctx context.Context, blockNrOrHash 
 				if err != nil {
 					return state.IteratorDump{}, err
 				}
-				headerHash, err := rawdb.ReadCanonicalHash(tx, headerNumber)
+				header, err := api._blockReader.HeaderByNumber(ctx, tx, headerNumber)
 				if err != nil {
 					return state.IteratorDump{}, err
 				}
-				if headerHash != (common.Hash{}) {
-					if header := rawdb.ReadHeader(tx, headerHash, headerNumber); header != nil {
-						if chainConfig, err := api.chainConfig(ctx, tx); err == nil {
-							blockNumber = posa.GetFinalizedHeader(stagedsync.NewChainReaderImpl(chainConfig, tx, nil, nil), header).Number.Uint64()
-						}
-					}
+				if header == nil {
+					return state.IteratorDump{}, nil
+				}
+				canonicalHash, _ := api._blockReader.CanonicalHash(ctx, tx, headerNumber)
+				isCanonical := canonicalHash == header.Hash()
+				if !isCanonical {
+					return state.IteratorDump{}, errors.New("block hash is not canonical")
+				}
+				if chainConfig, err := api.chainConfig(ctx, tx); err == nil {
+					blockNumber = posa.GetFinalizedHeader(stagedsync.NewChainReaderImpl(chainConfig, tx, nil, nil), header).Number.Uint64()
 				}
 			}
 		} else if number == rpc.SafeBlockNumber {
@@ -148,18 +152,22 @@ func (api *PrivateDebugAPIImpl) AccountRange(ctx context.Context, blockNrOrHash 
 				if err != nil {
 					return state.IteratorDump{}, err
 				}
-				headerHash, err := rawdb.ReadCanonicalHash(tx, headerNumber)
+				header, err := api._blockReader.HeaderByNumber(ctx, tx, headerNumber)
 				if err != nil {
 					return state.IteratorDump{}, err
 				}
-				if headerHash != (common.Hash{}) {
-					if header := rawdb.ReadHeader(tx, headerHash, headerNumber); header != nil {
-						if chainConfig, err := api.chainConfig(ctx, tx); err == nil {
-							blockNumber, _, err = posa.GetJustifiedNumberAndHash(stagedsync.NewChainReaderImpl(chainConfig, tx, nil, nil), header)
-							if err != nil {
-								return state.IteratorDump{}, err
-							}
-						}
+				if header == nil {
+					return state.IteratorDump{}, nil
+				}
+				canonicalHash, _ := api._blockReader.CanonicalHash(ctx, tx, headerNumber)
+				isCanonical := canonicalHash == header.Hash()
+				if !isCanonical {
+					return state.IteratorDump{}, errors.New("block hash is not canonical")
+				}
+				if chainConfig, err := api.chainConfig(ctx, tx); err == nil {
+					blockNumber, _, err = posa.GetJustifiedNumberAndHash(stagedsync.NewChainReaderImpl(chainConfig, tx, nil, nil), header)
+					if err != nil {
+						return state.IteratorDump{}, err
 					}
 				}
 			}
