@@ -176,11 +176,6 @@ const (
 	//key - address
 	//value - incarnation of account when it was last deleted
 	IncarnationMap = "IncarnationMap"
-
-	//TEVMCode -
-	//key - contract code hash
-	//value - contract TEVM code
-	ContractTEVMCode = "TEVMCode"
 )
 
 /*
@@ -304,9 +299,7 @@ const (
 	// Progress of sync stages: stageName -> stageData
 	SyncStageProgress = "SyncStage"
 
-	Clique             = "Clique"
 	CliqueSeparate     = "CliqueSeparate"
-	CliqueSnapshot     = "CliqueSnapshot"
 	CliqueLastSnapshot = "CliqueLastSnapshot"
 
 	// Snapshot table used for Binance Smart Chain's consensus engine Parlia
@@ -346,9 +339,6 @@ const (
 	// headBlockHash, safeBlockHash, finalizedBlockHash of the latest Engine API forkchoice
 	LastForkchoice = "LastForkchoice"
 
-	// TransitionBlockKey tracks the last proof-of-work block
-	TransitionBlockKey = "TransitionBlock"
-
 	// migrationName -> serialized SyncStageProgress and SyncStageUnwind buckets
 	// it stores stages progress to understand in which context was executed migration
 	// in case of bug-report developer can ask content of this bucket
@@ -358,13 +348,6 @@ const (
 
 	Epoch        = "DevEpoch"        // block_num_u64+block_hash->transition_proof
 	PendingEpoch = "DevPendingEpoch" // block_num_u64+block_hash->transition_proof
-
-	Issuance = "Issuance" // block_num_u64->RLP(issuance+burnt[0 if < london])
-
-	StateAccounts   = "StateAccounts"
-	StateStorage    = "StateStorage"
-	StateCode       = "StateCode"
-	StateCommitment = "StateCommitment"
 
 	// BOR
 	BorReceipts           = "BorReceipt"
@@ -427,16 +410,7 @@ const (
 	// and `Tbl{Account,Storage,Code,Commitment}Idx` for inverted indices
 	TblPruningProgress = "PruningProgress"
 
-	Snapshots = "Snapshots" // name -> hash
-
 	//State Reconstitution
-	RAccountKeys = "RAccountKeys"
-	RAccountIdx  = "RAccountIdx"
-	RStorageKeys = "RStorageKeys"
-	RStorageIdx  = "RStorageIdx"
-	RCodeKeys    = "RCodeKeys"
-	RCodeIdx     = "RCodeIdx"
-
 	PlainStateR    = "PlainStateR"    // temporary table for PlainState reconstitution
 	PlainStateD    = "PlainStateD"    // temporary table for PlainStare reconstitution, deletes
 	CodeR          = "CodeR"          // temporary table for Code reconstitution
@@ -446,15 +420,11 @@ const (
 
 	// Erigon-CL Objects
 
-	// [slot] => [Beacon state]
-	BeaconState = "BeaconState"
 	// [slot] => [signature + block without execution payload]
 	BeaconBlocks = "BeaconBlock"
 
 	EffectiveBalancesDump = "EffectiveBalancesDump"
 	BalancesDump          = "BalancesDump"
-	// [slot] => [attestation list (custom encoding)]
-	Attestetations = "Attestetations"
 
 	// [slot] => [Canonical block root]
 	CanonicalBlockRoots = "CanonicalBlockRoots"
@@ -471,7 +441,6 @@ const (
 	LastBeaconSnapshotKey = "LastBeaconSnapshotKey"
 
 	BlockRootToKzgCommitments = "BlockRootToKzgCommitments"
-	KzgCommitmentToBlob       = "KzgCommitmentToBlob"
 
 	// [Block Root] => [Parent Root]
 	BlockRootToParentRoot = "BlockRootToParentRoot"
@@ -481,8 +450,6 @@ const (
 	// BlockRoot => Beacon Block Header
 	BeaconBlockHeaders = "BeaconBlockHeaders"
 
-	// Period (one every 27 hours) => LightClientUpdate
-	LightClientUpdates = "LightClientUpdates"
 	// Beacon historical data
 	// ValidatorIndex => [Field]
 	ValidatorPublicKeys         = "ValidatorPublickeys"
@@ -502,14 +469,12 @@ const (
 	SlotData  = "SlotData"
 	EpochData = "EpochData"
 	// State fields
-	InactivityScores           = "InactivityScores"
-	PreviousEpochParticipation = "PreviousEpochParticipation"
-	CurrentEpochParticipation  = "CurrentEpochParticipation"
-	NextSyncCommittee          = "NextSyncCommittee"
-	CurrentSyncCommittee       = "CurrentSyncCommittee"
-	HistoricalRoots            = "HistoricalRoots"
-	HistoricalSummaries        = "HistoricalSummaries"
-	Eth1DataVotes              = "Eth1DataVotes"
+	InactivityScores     = "InactivityScores"
+	NextSyncCommittee    = "NextSyncCommittee"
+	CurrentSyncCommittee = "CurrentSyncCommittee"
+	HistoricalRoots      = "HistoricalRoots"
+	HistoricalSummaries  = "HistoricalSummaries"
+	Eth1DataVotes        = "Eth1DataVotes"
 
 	IntraRandaoMixes = "IntraRandaoMixes" // [validator_index+slot] => [randao_mix]
 	RandaoMixes      = "RandaoMixes"      // [validator_index+slot] => [randao_mix]
@@ -524,38 +489,19 @@ const (
 
 // Keys
 var (
-	//StorageModeTEVM - does not translate EVM to TEVM
-	StorageModeTEVM = []byte("smTEVM")
-
-	PruneTypeOlder  = []byte("older")
-	PruneTypeBefore = []byte("before")
-
-	PruneHistory        = []byte("pruneHistory")
-	PruneHistoryType    = []byte("pruneHistoryType")
-	PruneReceipts       = []byte("pruneReceipts")
-	PruneReceiptsType   = []byte("pruneReceiptsType")
-	PruneTxIndex        = []byte("pruneTxIndex")
-	PruneTxIndexType    = []byte("pruneTxIndexType")
-	PruneCallTraces     = []byte("pruneCallTraces")
-	PruneCallTracesType = []byte("pruneCallTracesType")
-	PruneBlocks         = []byte("pruneBlocks")
-	PruneBlocksType     = []byte("pruneBlocksType")
+	PruneTypeOlder = []byte("older")
+	PruneHistory   = []byte("pruneHistory")
+	PruneBlocks    = []byte("pruneBlocks")
 
 	DBSchemaVersionKey = []byte("dbVersion")
 	GenesisKey         = []byte("genesis")
 
-	BittorrentPeerID            = "peerID"
-	CurrentHeadersSnapshotHash  = []byte("CurrentHeadersSnapshotHash")
-	CurrentHeadersSnapshotBlock = []byte("CurrentHeadersSnapshotBlock")
-	CurrentBodiesSnapshotHash   = []byte("CurrentBodiesSnapshotHash")
-	CurrentBodiesSnapshotBlock  = []byte("CurrentBodiesSnapshotBlock")
-	PlainStateVersion           = []byte("PlainStateVersion")
+	BittorrentPeerID = "peerID"
 
-	HighestFinalizedKey         = []byte("HighestFinalized")
-	LightClientStore            = []byte("LightClientStore")
-	LightClientFinalityUpdate   = []byte("LightClientFinalityUpdate")
-	LightClientOptimisticUpdate = []byte("LightClientOptimisticUpdate")
-	LastNewBlockSeen            = []byte("LastNewBlockSeen") // last seen block hash
+	PlainStateVersion = []byte("PlainStateVersion")
+
+	HighestFinalizedKey = []byte("HighestFinalized")
+	LastNewBlockSeen    = []byte("LastNewBlockSeen") // last seen block hash
 
 	StatesProcessingKey          = []byte("StatesProcessing")
 	MinimumPrunableStepDomainKey = []byte("MinimumPrunableStepDomainKey")
@@ -575,13 +521,10 @@ var ChaindataTables = []string{
 	Receipts,
 	TxLookup,
 	ConfigTable,
-	CurrentExecutionPayload,
 	DatabaseInfo,
 	IncarnationMap,
-	ContractTEVMCode,
 	CliqueSeparate,
 	CliqueLastSnapshot,
-	CliqueSnapshot,
 	ParliaSnapshot,
 	BlobTxCount,
 	SyncStageProgress,
@@ -612,11 +555,6 @@ var ChaindataTables = []string{
 	HeaderTD,
 	Epoch,
 	PendingEpoch,
-	Issuance,
-	StateAccounts,
-	StateStorage,
-	StateCode,
-	StateCommitment,
 	BorReceipts,
 	BorFinality,
 	BorTxLookup,
@@ -665,20 +603,11 @@ var ChaindataTables = []string{
 
 	TblPruningProgress,
 
-	Snapshots,
 	MaxTxNum,
-
-	RAccountKeys,
-	RAccountIdx,
-	RStorageKeys,
-	RStorageIdx,
-	RCodeKeys,
-	RCodeIdx,
 
 	VerkleRoots,
 	VerkleTrie,
 	// Beacon stuff
-	BeaconState,
 	BeaconBlocks,
 	CanonicalBlockRoots,
 	BlockRootToSlot,
@@ -687,14 +616,11 @@ var ChaindataTables = []string{
 	BlockRootToParentRoot,
 	BeaconBlockHeaders,
 	HighestFinalized,
-	Attestetations,
-	LightClientUpdates,
 	BlockRootToBlockHash,
 	BlockRootToBlockNumber,
 	LastBeaconSnapshot,
 	// Blob Storage
 	BlockRootToKzgCommitments,
-	KzgCommitmentToBlob,
 	// State Reconstitution
 	ValidatorPublicKeys,
 	InvertedValidatorPublicKeys,
@@ -711,8 +637,6 @@ var ChaindataTables = []string{
 	RandaoMixes,
 	Proposers,
 	StatesProcessingProgress,
-	PreviousEpochParticipation,
-	CurrentEpochParticipation,
 	InactivityScores,
 	NextSyncCommittee,
 	CurrentSyncCommittee,
@@ -751,10 +675,7 @@ var ReconTables = []string{
 }
 
 // ChaindataDeprecatedTables - list of buckets which can be programmatically deleted - for example after migration
-var ChaindataDeprecatedTables = []string{
-	Clique,
-	TransitionBlockKey,
-}
+var ChaindataDeprecatedTables = []string{}
 
 // Diagnostics tables
 var DiagnosticsTables = []string{
@@ -840,13 +761,6 @@ var ChaindataTablesCfg = TableCfg{
 	TblTracesToKeys:          {Flags: DupSort},
 	TblTracesToIdx:           {Flags: DupSort},
 	TblPruningProgress:       {Flags: DupSort},
-
-	RAccountKeys: {Flags: DupSort},
-	RAccountIdx:  {Flags: DupSort},
-	RStorageKeys: {Flags: DupSort},
-	RStorageIdx:  {Flags: DupSort},
-	RCodeKeys:    {Flags: DupSort},
-	RCodeIdx:     {Flags: DupSort},
 }
 
 var BorTablesCfg = TableCfg{
@@ -1049,14 +963,5 @@ func (iip Appendable) String() string {
 	//	return "receipts"
 	default:
 		return "unknown Appendable"
-	}
-}
-
-func String2Appendable(in string) (Appendable, error) {
-	switch in {
-	//case "receipts":
-	//	return ReceiptsAppendable, nil
-	default:
-		return Appendable(MaxUint16), fmt.Errorf("unknown Appendable name: %s", in)
 	}
 }

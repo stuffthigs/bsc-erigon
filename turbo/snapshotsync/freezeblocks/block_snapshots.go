@@ -328,8 +328,7 @@ func (s *RoSnapshots) LogStat(label string) {
 	var m runtime.MemStats
 	dbg.ReadMemStats(&m)
 	s.logger.Info(fmt.Sprintf("[snapshots:%s] Stat", label),
-		"blocks", fmt.Sprintf("%dk", (s.SegmentsMax()+1)/1000),
-		"indices", fmt.Sprintf("%dk", (s.IndicesMax()+1)/1000),
+		"blocks", common2.PrettyCounter(s.SegmentsMax()+1), "indices", common2.PrettyCounter(s.IndicesMax()+1),
 		"alloc", common2.ByteCount(m.Alloc), "sys", common2.ByteCount(m.Sys))
 }
 
@@ -426,6 +425,10 @@ func (s *RoSnapshots) idxAvailability() uint64 {
 	})
 
 	if len(maximums) == 0 {
+		return 0
+	}
+
+	if len(maximums) != len(s.types) {
 		return 0
 	}
 
@@ -610,7 +613,6 @@ func (s *RoSnapshots) rebuildSegments(fileNames []string, open bool, optimistic 
 		}
 		segmentsMaxSet = true
 	}
-
 	if segmentsMaxSet {
 		s.segmentsMax.Store(segmentsMax)
 	}
@@ -819,6 +821,10 @@ func (s *RoSnapshots) Delete(fileName string) error {
 func (s *RoSnapshots) buildMissedIndices(logPrefix string, ctx context.Context, dirs datadir.Dirs, chainConfig *chain.Config, workers int, logger log.Logger) error {
 	if s == nil {
 		return nil
+	}
+
+	if _, err := snaptype.ReadAndCreateSaltIfNeeded(dirs.Snap); err != nil {
+		return err
 	}
 
 	dir, tmpDir := dirs.Snap, dirs.Tmp
@@ -1397,7 +1403,8 @@ func (br *BlockRetire) retireBlocks(ctx context.Context, minBlockNum uint64, max
 		} else if !has {
 			return false, nil
 		}
-		logger.Log(lvl, "[snapshots] Retire Blocks", "range", fmt.Sprintf("%dk-%dk", blockFrom/1000, blockTo/1000))
+		logger.Log(lvl, "[snapshots] Retire Blocks", "range",
+			fmt.Sprintf("%s-%s", common2.PrettyCounter(blockFrom), common2.PrettyCounter(blockTo)))
 		// in future we will do it in background
 		if err := DumpBlocks(ctx, blockFrom, blockTo, br.chainConfig, tmpDir, snapshots.Dir(), db, workers, lvl, logger, blockReader); err != nil {
 			return ok, fmt.Errorf("DumpBlocks: %w", err)

@@ -32,44 +32,41 @@ import (
 	"github.com/erigontech/erigon/polygon/polygoncommon"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
-	"github.com/erigontech/erigon/accounts/abi"
 	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/erigon/polygon/bor/borcfg"
 	"github.com/erigontech/erigon/polygon/heimdall"
 )
 
-var ErrMapNotAvailable = errors.New("map not available")
+type eventFetcher interface {
+	FetchStateSyncEvents(ctx context.Context, fromId uint64, to time.Time, limit int) ([]*heimdall.EventRecordWithTime, error)
+}
 
-type fetchSyncEventsType func(ctx context.Context, fromId uint64, to time.Time, limit int) ([]*heimdall.EventRecordWithTime, error)
+func Assemble(dataDir string, logger log.Logger, borConfig *borcfg.BorConfig, eventFetcher eventFetcher) *Bridge {
+	bridgeDB := polygoncommon.NewDatabase(dataDir, kv.PolygonBridgeDB, databaseTablesCfg, logger)
+	bridgeStore := NewStore(bridgeDB)
+	return NewBridge(bridgeStore, logger, borConfig, eventFetcher)
+}
+
+func NewBridge(store Store, logger log.Logger, borConfig *borcfg.BorConfig, eventFetcher eventFetcher) *Bridge {
+	return &Bridge{
+		store:                        store,
+		logger:                       logger,
+		borConfig:                    borConfig,
+		eventFetcher:                 eventFetcher,
+		stateReceiverContractAddress: libcommon.HexToAddress(borConfig.StateReceiverContract),
+	}
+}
 
 type Bridge struct {
-	store                    Store
+	store                        Store
+	logger                       log.Logger
+	borConfig                    *borcfg.BorConfig
+	eventFetcher                 eventFetcher
+	stateReceiverContractAddress libcommon.Address
+	// internal state
 	ready                    atomic.Bool
 	lastProcessedBlockNumber atomic.Uint64
 	lastProcessedEventID     atomic.Uint64
-
-	log                log.Logger
-	borConfig          *borcfg.BorConfig
-	stateReceiverABI   abi.ABI
-	stateClientAddress libcommon.Address
-	fetchSyncEvents    fetchSyncEventsType
-}
-
-func Assemble(dataDir string, logger log.Logger, borConfig *borcfg.BorConfig, fetchSyncEvents fetchSyncEventsType, stateReceiverABI abi.ABI) *Bridge {
-	bridgeDB := polygoncommon.NewDatabase(dataDir, kv.PolygonBridgeDB, databaseTablesCfg, logger)
-	bridgeStore := NewStore(bridgeDB)
-	return NewBridge(bridgeStore, logger, borConfig, fetchSyncEvents, stateReceiverABI)
-}
-
-func NewBridge(store Store, logger log.Logger, borConfig *borcfg.BorConfig, fetchSyncEvents fetchSyncEventsType, stateReceiverABI abi.ABI) *Bridge {
-	return &Bridge{
-		store:              store,
-		log:                logger,
-		borConfig:          borConfig,
-		fetchSyncEvents:    fetchSyncEvents,
-		stateReceiverABI:   stateReceiverABI,
-		stateClientAddress: libcommon.HexToAddress(borConfig.StateReceiverContract),
-	}
 }
 
 func (b *Bridge) Run(ctx context.Context) error {
@@ -93,7 +90,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 	b.lastProcessedEventID.Store(lastProcessedEventID)
 
 	// start syncing
-	b.log.Debug(bridgeLogPrefix("Bridge is running"), "lastEventID", lastEventID)
+	b.logger.Debug(bridgeLogPrefix("Bridge is running"), "lastEventID", lastEventID)
 
 	for {
 		select {
@@ -104,14 +101,14 @@ func (b *Bridge) Run(ctx context.Context) error {
 
 		// get all events from last sync ID to now
 		to := time.Now()
-		events, err := b.fetchSyncEvents(ctx, lastEventID+1, to, 0)
+		events, err := b.eventFetcher.FetchStateSyncEvents(ctx, lastEventID+1, to, 0)
 		if err != nil {
 			return err
 		}
 
 		if len(events) != 0 {
 			b.ready.Store(false)
-			if err := b.store.PutEvents(ctx, events, b.stateReceiverABI); err != nil {
+			if err := b.store.PutEvents(ctx, events); err != nil {
 				return err
 			}
 
@@ -123,7 +120,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 			}
 		}
 
-		b.log.Debug(bridgeLogPrefix(fmt.Sprintf("got %v new events, last event ID: %v, ready: %v", len(events), lastEventID, b.ready.Load())))
+		b.logger.Debug(bridgeLogPrefix(fmt.Sprintf("got %v new events, last event ID: %v, ready: %v", len(events), lastEventID, b.ready.Load())))
 	}
 }
 
@@ -131,10 +128,16 @@ func (b *Bridge) Close() {
 	b.store.Close()
 }
 
-// EngineService interface implementations
-
 // ProcessNewBlocks iterates through all blocks and constructs a map from block number to sync events
 func (b *Bridge) ProcessNewBlocks(ctx context.Context, blocks []*types.Block) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	if err := b.Synchronize(ctx, blocks[len(blocks)-1].NumberU64()); err != nil {
+		return err
+	}
+
 	eventMap := make(map[uint64]uint64)
 	txMap := make(map[libcommon.Hash]uint64)
 	var prevSprintTime time.Time
@@ -156,19 +159,19 @@ func (b *Bridge) ProcessNewBlocks(ctx context.Context, blocks []*types.Block) er
 
 		prevSprintTime = time.Unix(int64(block.Time()), 0)
 
-		lastDBID, err := b.store.SprintLastEventID(ctx, b.lastProcessedEventID.Load(), timeLimit, b.stateReceiverABI)
+		lastID, err := b.store.LastEventIDWithinWindow(ctx, b.lastProcessedEventID.Load(), timeLimit)
 		if err != nil {
 			return err
 		}
 
-		if lastDBID > b.lastProcessedEventID.Load() {
-			b.log.Debug(bridgeLogPrefix(fmt.Sprintf("Creating map for block %d, start ID %d, end ID %d", blockNum, b.lastProcessedEventID.Load(), lastDBID)))
+		if lastID > b.lastProcessedEventID.Load() {
+			b.logger.Debug(bridgeLogPrefix(fmt.Sprintf("Creating map for block %d, start ID %d, end ID %d", blockNum, b.lastProcessedEventID.Load(), lastID)))
 
 			k := bortypes.ComputeBorTxHash(blockNum, block.Hash())
 			eventMap[blockNum] = b.lastProcessedEventID.Load()
 			txMap[k] = blockNum
 
-			b.lastProcessedEventID.Store(lastDBID)
+			b.lastProcessedEventID.Store(lastID)
 		}
 
 		b.lastProcessedBlockNumber.Store(blockNum)
@@ -188,29 +191,31 @@ func (b *Bridge) ProcessNewBlocks(ctx context.Context, blocks []*types.Block) er
 }
 
 // Synchronize blocks till bridge has map at tip
-func (b *Bridge) Synchronize(ctx context.Context, tip *types.Header) error {
+func (b *Bridge) Synchronize(ctx context.Context, blockNum uint64) error {
+	b.logger.Debug(bridgeLogPrefix("synchronizing events..."), "blockNum", blockNum)
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		if b.ready.Load() || b.lastProcessedBlockNumber.Load() >= tip.Number.Uint64() {
+		if b.ready.Load() || b.lastProcessedBlockNumber.Load() >= blockNum {
 			return nil
 		}
 	}
 }
 
 // Unwind deletes map entries till tip
-func (b *Bridge) Unwind(ctx context.Context, tip *types.Header) error {
-	return b.store.PruneEventIDs(ctx, tip.Number.Uint64())
+func (b *Bridge) Unwind(ctx context.Context, blockNum uint64) error {
+	return b.store.PruneEventIDs(ctx, blockNum)
 }
 
 // Events returns all sync events at blockNum
 func (b *Bridge) Events(ctx context.Context, blockNum uint64) ([]*types.Message, error) {
 	start, end, err := b.store.EventIDRange(ctx, blockNum)
 	if err != nil {
-		if errors.Is(err, ErrMapNotAvailable) {
+		if errors.Is(err, ErrEventIDRangeNotFound) {
 			return nil, nil
 		}
 
@@ -229,13 +234,13 @@ func (b *Bridge) Events(ctx context.Context, blockNum uint64) ([]*types.Message,
 		return nil, err
 	}
 
-	b.log.Debug(bridgeLogPrefix(fmt.Sprintf("got %v events for block %v", len(events), blockNum)))
+	b.logger.Debug(bridgeLogPrefix(fmt.Sprintf("got %v events for block %v", len(events), blockNum)))
 
 	// convert to message
 	for _, event := range events {
 		msg := types.NewMessage(
 			state.SystemAddress,
-			&b.stateClientAddress,
+			&b.stateReceiverContractAddress,
 			0, u256.Num0,
 			core.SysCallGasLimit,
 			u256.Num0,

@@ -20,9 +20,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/erigontech/erigon-lib/common/datadir"
 	"github.com/erigontech/erigon/core/systemcontracts"
 	"sync"
+
+	"github.com/erigontech/erigon-lib/common/datadir"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 
@@ -411,7 +412,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 		}
 		gp := new(core.GasPool).AddGas(txTask.Tx.GetGas()).AddBlobGas(txTask.Tx.GetBlobGas())
 		vmConfig := vm.Config{NoReceipts: true, SkipAnalysis: txTask.SkipAnalysis}
-		ibs.SetTxContext(txTask.Tx.Hash(), txTask.BlockHash, txTask.TxIndex)
+		ibs.SetTxContext(txTask.Tx.Hash(), txTask.TxIndex)
 		msg := txTask.TxAsMessage
 
 		rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, core.NewEVMTxContext(msg), ibs, vmConfig, txTask.Rules)
