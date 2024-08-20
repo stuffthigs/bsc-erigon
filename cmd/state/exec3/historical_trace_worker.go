@@ -205,7 +205,7 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			}
 			rw.vmConfig.SkipAnalysis = txTask.SkipAnalysis
 			msg := txTask.TxAsMessage
-			ibs.SetTxContext(txTask.Tx.Hash(), txTask.BlockHash, txTask.TxIndex)
+			ibs.SetTxContext(txTask.Tx.Hash(), txTask.TxIndex)
 			if rw.execArgs.ChainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 				rules := rw.execArgs.ChainConfig.Rules(header.Number.Uint64(), header.Time)
 				ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)
@@ -229,7 +229,7 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 				// Update the state with pending changes
 				ibs.SoftFinalise()
 				//txTask.Error = ibs.FinalizeTx(rules, noop)
-				txTask.Logs = ibs.GetLogs(txTask.Tx.Hash())
+				txTask.Logs = ibs.GetLogs(txTask.Tx.Hash(), rw.blockNum, rw.blockHash)
 			}
 			return ret, true, nil
 		}
@@ -246,7 +246,7 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			rw.vmConfig.Tracer = tracer
 		}
 		rw.vmConfig.SkipAnalysis = txTask.SkipAnalysis
-		ibs.SetTxContext(txHash, txTask.BlockHash, txTask.TxIndex)
+		ibs.SetTxContext(txHash, txTask.TxIndex)
 		msg := txTask.TxAsMessage
 
 		rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, core.NewEVMTxContext(msg), ibs, *rw.vmConfig, rules)
@@ -268,7 +268,7 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			txTask.UsedGas = applyRes.UsedGas
 			// Update the state with pending changes
 			ibs.SoftFinalise()
-			txTask.Logs = ibs.GetLogs(txHash)
+			txTask.Logs = ibs.GetLogs(txHash, rw.blockNum, rw.blockHash)
 		}
 		//txTask.Tracer = tracer
 	}

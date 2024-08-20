@@ -44,8 +44,9 @@ require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-chi/cors v1.2.1
 	github.com/go-echarts/go-echarts/v2 v2.3.3
+	github.com/go-test/deep v1.1.1
 	github.com/goccy/go-json v0.10.2
-	github.com/gofrs/flock v0.12.0
+	github.com/gofrs/flock v0.12.1
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb
 	github.com/google/btree v1.1.2
@@ -55,7 +56,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.7
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/holiman/uint256 v1.3.0
+	github.com/holiman/uint256 v1.3.1
 	github.com/huandu/xstrings v1.5.0
 	github.com/huin/goupnp v1.3.0
 	github.com/jackpal/go-nat-pmp v1.0.2
@@ -88,22 +89,22 @@ require (
 	github.com/tendermint/tendermint v0.0.0-00010101000000-000000000000
 	github.com/thomaso-mirodin/intmath v0.0.0-20160323211736-5dc6d854e46e
 	github.com/tidwall/btree v1.6.0
-	github.com/ugorji/go/codec v1.1.13
-	github.com/urfave/cli/v2 v2.27.2
+	github.com/ugorji/go/codec v1.2.12
+	github.com/urfave/cli/v2 v2.27.3
 	github.com/valyala/fastjson v1.6.4
 	github.com/vektah/gqlparser/v2 v2.5.16
 	github.com/willf/bitset v1.1.10
 	github.com/xsleonard/go-merkle v1.1.0
 	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.25.0
+	golang.org/x/crypto v0.26.0
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
-	golang.org/x/net v0.27.0
-	golang.org/x/sync v0.7.0
-	golang.org/x/sys v0.22.0
-	golang.org/x/time v0.5.0
-	google.golang.org/grpc v1.64.0
-	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.4.0
+	golang.org/x/net v0.28.0
+	golang.org/x/sync v0.8.0
+	golang.org/x/sys v0.23.0
+	golang.org/x/time v0.6.0
+	google.golang.org/grpc v1.65.0
+	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
 	google.golang.org/protobuf v1.34.2
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -117,7 +118,7 @@ require (
 require (
 	github.com/cosmos/gogoproto v1.4.1 // indirect
 	github.com/d4l3k/messagediff v1.2.1 // indirect
-	github.com/erigontech/erigon-snapshot v1.3.1-0.20240801141542-7a7b08ebd406 // indirect
+	github.com/elastic/go-freelru v0.13.0 // indirect
 	github.com/erigontech/speedtest v0.0.2 // indirect
 	github.com/go-kit/kit v0.12.0 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
@@ -136,13 +137,14 @@ require (
 	github.com/prysmaticlabs/fastssz v0.0.0-20221107182844-78142813af44 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/sasha-s/go-deadlock v0.3.1 // indirect
+	github.com/shirou/gopsutil/v4 v4.24.7 // indirect
 	github.com/tecbot/gorocksdb v0.0.0-20191217155057-f0fad39f321c // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.8.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/otel/metric v1.21.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
 )
 
 require (
@@ -185,6 +187,7 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elastic/gosigar v0.14.2 // indirect
+	github.com/erigontech/erigon-snapshot v1.3.1-0.20240814160410-2ce37904b978 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
@@ -279,7 +282,6 @@ require (
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
@@ -288,7 +290,7 @@ require (
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/supranational/blst v0.3.11 // indirect
-	github.com/xrash/smetrics v0.0.0-20240312152122-5f08fbb34913 // indirect
+	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.etcd.io/bbolt v1.3.9 // indirect
 	go.opentelemetry.io/otel v1.21.0 // indirect
 	go.opentelemetry.io/otel/trace v1.21.0 // indirect
@@ -296,7 +298,7 @@ require (
 	go.uber.org/fx v1.21.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/mod v0.19.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/text v0.17.0 // indirect
 	golang.org/x/tools v0.23.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
@@ -311,7 +313,7 @@ require (
 )
 
 replace (
-	github.com/anacrolix/torrent => github.com/erigontech/torrent v1.54.2-alpha-33
+	github.com/anacrolix/torrent => github.com/erigontech/torrent v1.54.2-alpha-35
 	github.com/cometbft/cometbft => github.com/bnb-chain/greenfield-cometbft v1.3.1
 	github.com/erigontech/erigon-snapshot => github.com/node-real/bsc-erigon-snapshot v1.0.1-0.20240808142021-41f59a286e8a
 	github.com/gballet/go-verkle => github.com/gballet/go-verkle v0.0.0-20221121182333-31427a1f2d35
