@@ -149,6 +149,7 @@ var snapshotCommand = cli.Command{
 				&SnapshotFromFlag,
 				&SnapshotToFlag,
 				&SnapshotEveryFlag,
+				&SnapshotWithoutBsc,
 			}),
 		},
 		{
@@ -396,6 +397,10 @@ var (
 		Name:  "rebuild",
 		Usage: "Force rebuild",
 	}
+	SnapshotWithoutBsc = cli.BoolFlag{
+		Name:  "withoutBsc",
+		Usage: "don't build Bsc snapshots",
+	}
 )
 
 func doBtSearch(cliCtx *cli.Context) error {
@@ -499,7 +504,7 @@ func doIntegrity(cliCtx *cli.Context) error {
 	cfg := ethconfig.NewSnapCfg(false, true, true)
 	from := cliCtx.Uint64(SnapshotFromFlag.Name)
 
-	_, _, _, _, blockRetire, agg, clean, err := openSnaps(ctx, cfg, dirs, from, chainDB, logger)
+	_, _, _, _, blockRetire, agg, clean, err := openSnaps(ctx, cfg, dirs, from, chainDB, nil, logger)
 	if err != nil {
 		return err
 	}
@@ -977,7 +982,12 @@ func doIndicesCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	chainConfig := fromdb.ChainConfig(chainDB)
 	from := cliCtx.Uint64(SnapshotFromFlag.Name)
 
-	_, _, _, caplinSnaps, br, agg, clean, err := openSnaps(ctx, cfg, dirs, from, chainDB, logger)
+	var bs services.BlobStorage
+	if chainConfig.Parlia != nil {
+		bs = openBlobStore(dirs, chainConfig, true)
+	}
+
+	_, _, _, caplinSnaps, br, agg, clean, err := openSnaps(ctx, cfg, dirs, from, chainDB, bs, logger)
 	if err != nil {
 		return err
 	}
@@ -1008,7 +1018,7 @@ func doLS(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	defer chainDB.Close()
 	cfg := ethconfig.NewSnapCfg(false, true, true)
 	from := cliCtx.Uint64(SnapshotFromFlag.Name)
-	blockSnaps, borSnaps, bscSnaps, caplinSnaps, _, agg, clean, err := openSnaps(ctx, cfg, dirs, from, chainDB, logger)
+	blockSnaps, borSnaps, bscSnaps, caplinSnaps, _, agg, clean, err := openSnaps(ctx, cfg, dirs, from, chainDB, nil, logger)
 	if err != nil {
 		return err
 	}
@@ -1023,7 +1033,7 @@ func doLS(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	return nil
 }
 
-func openSnaps(ctx context.Context, cfg ethconfig.BlocksFreezing, dirs datadir.Dirs, from uint64, chainDB kv.RwDB, logger log.Logger) (
+func openSnaps(ctx context.Context, cfg ethconfig.BlocksFreezing, dirs datadir.Dirs, from uint64, chainDB kv.RwDB, bs services.BlobStorage, logger log.Logger) (
 	blockSnaps *freezeblocks.RoSnapshots, borSnaps *freezeblocks.BorRoSnapshots, bscSnaps *freezeblocks.BscRoSnapshots, csn *freezeblocks.CaplinSnapshots,
 	br *freezeblocks.BlockRetire, agg *libstate.Aggregator, clean func(), err error,
 ) {
@@ -1083,11 +1093,6 @@ func openSnaps(ctx context.Context, cfg ethconfig.BlocksFreezing, dirs datadir.D
 
 	blockSnapBuildSema := semaphore.NewWeighted(int64(dbg.BuildSnapshotAllowance))
 	agg.SetSnapshotBuildSema(blockSnapBuildSema)
-	var bs services.BlobStorage
-	if chainConfig.Parlia != nil {
-		bs = openBlobStore(dirs, chainConfig, blockReader)
-		bscSnaps.LogStat("blobStore:open")
-	}
 	br = freezeblocks.NewBlockRetire(estimate.CompressSnapshot.Workers(), dirs, blockReader, blockWriter, chainDB, bs, chainConfig, nil, blockSnapBuildSema, logger)
 	clean = func() {
 		defer blockSnaps.Close()
@@ -1213,13 +1218,21 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	from := cliCtx.Uint64(SnapshotFromFlag.Name)
 	to := cliCtx.Uint64(SnapshotToFlag.Name)
 	every := cliCtx.Uint64(SnapshotEveryFlag.Name)
+	blobPrune := cliCtx.Bool(SnapshotWithoutBsc.Name)
 
 	db := dbCfg(kv.ChainDB, dirs.Chaindata).MustOpen()
 	defer db.Close()
 
+	chainConfig := fromdb.ChainConfig(db)
+
+	var bs services.BlobStorage
+	if chainConfig.Parlia != nil {
+		bs = openBlobStore(dirs, chainConfig, blobPrune)
+	}
+
 	cfg := ethconfig.NewSnapCfg(false, true, true)
 
-	blockSnaps, _, _, caplinSnaps, br, agg, clean, err := openSnaps(ctx, cfg, dirs, from, db, logger)
+	blockSnaps, _, _, caplinSnaps, br, agg, clean, err := openSnaps(ctx, cfg, dirs, from, db, bs, logger)
 	if err != nil {
 		return err
 	}
@@ -1230,7 +1243,6 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	agg.SetMergeWorkers(estimate.AlmostAllCPUs())
 	agg.SetCompressWorkers(estimate.CompressSnapshot.Workers())
 
-	chainConfig := fromdb.ChainConfig(db)
 	if err := br.BuildMissedIndicesIfNeed(ctx, "retire", nil, chainConfig); err != nil {
 		return err
 	}
@@ -1541,9 +1553,14 @@ func openAgg(ctx context.Context, dirs datadir.Dirs, chainDB kv.RwDB, logger log
 //	return nil
 //}
 
-func openBlobStore(dirs datadir.Dirs, chainConfig *chain.Config, blockReader services.FullBlockReader) services.BlobStorage {
+func openBlobStore(dirs datadir.Dirs, chainConfig *chain.Config, blobPrune bool) services.BlobStorage {
 	blobDbPath := path.Join(dirs.Blobs, "blob")
 	blobDb := mdbx.MustOpen(blobDbPath)
-	blobStore := blob_storage.NewBlobStore(blobDb, afero.NewBasePathFs(afero.NewOsFs(), dirs.Blobs), math.MaxUint64, chainConfig, blockReader)
+	var blobKept uint64
+	blobKept = math.MaxUint64
+	if blobPrune {
+		blobKept = params.MinBlocksForBlobRequests
+	}
+	blobStore := blob_storage.NewBlobStore(blobDb, afero.NewBasePathFs(afero.NewOsFs(), dirs.Blobs), blobKept, chainConfig, nil)
 	return blobStore
 }
