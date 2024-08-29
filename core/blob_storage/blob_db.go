@@ -25,11 +25,10 @@ type BlobStore struct {
 	fs          afero.Fs
 	chainConfig *chain.Config
 	blocksKept  uint64
-	blockReader services.BlockReader
 }
 
-func NewBlobStore(db kv.RwDB, fs afero.Fs, blocksKept uint64, chainConfig *chain.Config, blockReader services.BlockReader) services.BlobStorage {
-	return &BlobStore{fs: fs, db: db, blocksKept: blocksKept, chainConfig: chainConfig, blockReader: blockReader}
+func NewBlobStore(db kv.RwDB, fs afero.Fs, blocksKept uint64, chainConfig *chain.Config) services.BlobStorage {
+	return &BlobStore{fs: fs, db: db, blocksKept: blocksKept, chainConfig: chainConfig}
 }
 
 func blobSidecarFilePath(blockNumber uint64, index uint64, hash libcommon.Hash) (folderpath, filepath string) {
@@ -122,20 +121,11 @@ func (bs *BlobStore) ReadBlobSidecars(ctx context.Context, number uint64, hash l
 }
 
 // Do a bit of pruning
-func (bs *BlobStore) Prune() error {
+func (bs *BlobStore) Prune(current uint64) error {
 	if bs.blocksKept == math.MaxUint64 {
 		return nil
 	}
-	tx, err := bs.db.BeginRo(context.Background())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	block, err := bs.blockReader.CurrentBlock(tx)
-	if err != nil {
-		return err
-	}
-	currentBlock := block.NumberU64() - bs.blocksKept
+	currentBlock := current - bs.blocksKept
 	currentBlock = (currentBlock / subdivision) * subdivision
 	var startPrune uint64
 	if currentBlock >= 1_000_000 {
@@ -143,7 +133,7 @@ func (bs *BlobStore) Prune() error {
 	}
 	// delete all the folders that are older than slotsKept
 	for i := startPrune; i < currentBlock; i += subdivision {
-		bs.fs.RemoveAll(strconv.FormatUint(i, 10))
+		bs.fs.RemoveAll(strconv.FormatUint(i/subdivision, 10))
 	}
 	return nil
 }
