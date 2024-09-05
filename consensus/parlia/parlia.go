@@ -430,7 +430,7 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 		return nil
 	}
 	if attestation.Data == nil {
-		return fmt.Errorf("invalid attestation, vote data is nil")
+		return errors.New("invalid attestation, vote data is nil")
 	}
 	if len(attestation.Extra) > types.MaxAttestationExtraLength {
 		return fmt.Errorf("invalid attestation, too large extra length: %d", len(attestation.Extra))
@@ -454,7 +454,7 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 	sourceHash := attestation.Data.SourceHash
 	justifiedBlockNumber, justifiedBlockHash, err := p.GetJustifiedNumberAndHash(chain, parent)
 	if err != nil {
-		return fmt.Errorf("unexpected error when getting the highest justified number and hash")
+		return errors.New("unexpected error when getting the highest justified number and hash")
 	}
 	if sourceNumber != justifiedBlockNumber || sourceHash != justifiedBlockHash {
 		return fmt.Errorf("invalid attestation, source mismatch, expected block: %d, hash: %s; real block: %d, hash: %s",
@@ -476,7 +476,7 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 	validators := snap.validators()
 	validatorsBitSet := bitset.From([]uint64{uint64(attestation.VoteAddressSet)})
 	if validatorsBitSet.Count() > uint(len(validators)) {
-		return fmt.Errorf("invalid attestation, vote number larger than validators number")
+		return errors.New("invalid attestation, vote number larger than validators number")
 	}
 	votedAddrs := make([]bls.PublicKey, 0, validatorsBitSet.Count())
 	for index, val := range validators {
@@ -801,7 +801,7 @@ func (p *Parlia) snapshot(chain consensus.ChainHeaderReader, number uint64, hash
 		headers[i], headers[len(headers)-1-i] = headers[len(headers)-1-i], headers[i]
 	}
 
-	snap, err := snap.apply(headers, chain, parents, p.chainConfig, p.recentSnaps)
+	snap, err := snap.apply(headers, chain, parents, p.chainConfig, p.recentSnaps, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1556,7 +1556,7 @@ func (p *Parlia) systemCall(from, contract libcommon.Address, data []byte, ibs *
 // GetJustifiedNumberAndHash returns the highest justified block's number and hash on the branch including and before `header`
 func (p *Parlia) GetJustifiedNumberAndHash(chain consensus.ChainHeaderReader, header *types.Header) (uint64, libcommon.Hash, error) {
 	if chain == nil || header == nil {
-		return 0, libcommon.Hash{}, fmt.Errorf("illegal chain or header")
+		return 0, libcommon.Hash{}, errors.New("illegal chain or header")
 	}
 	snap, err := p.snapshot(chain, header.Number.Uint64(), header.Hash(), nil, true)
 	if err != nil {
@@ -1614,6 +1614,62 @@ func (p *Parlia) blockTimeVerifyForRamanujanFork(snap *Snapshot, header, parent 
 		if header.Time < parent.Time+p.config.Period+backOffTime(snap, header, header.Coinbase, p.chainConfig) {
 			return fmt.Errorf("header %d, time %d, now %d, period: %d, backof: %d, %w", header.Number.Uint64(), header.Time, time.Now().Unix(), p.config.Period, backOffTime(snap, header, header.Coinbase, p.chainConfig), consensus.ErrFutureBlock)
 		}
+	}
+	return nil
+}
+
+func (p *Parlia) GetLatestSnapshotHeight() (uint64, error) {
+	return getLatestSnapshotHeight(p.db)
+}
+
+// ResetSnapshot  Fill consensus db from snapshot
+func (p *Parlia) ResetSnapshot(chain consensus.ChainHeaderReader, headers []*types.Header) error {
+	// Search for a snapshot in memory or on disk for checkpoints
+	var snap *Snapshot
+
+	checkpoint := headers[len(headers)-1]
+	start := headers[0]
+	// If we're at the genesis, snapshot the initial state.
+	if checkpoint.Number.Uint64() == 0 {
+		// Headers included into the snapshots have to be trusted as checkpoints get validators from headers
+		validators, voteAddrs, err := parseValidators(checkpoint, p.chainConfig, p.config)
+		if err != nil {
+			return err
+		}
+		// new snapshot
+		snap = newSnapshot(p.config, p.signatures, checkpoint.Number.Uint64(), checkpoint.Hash(), validators, voteAddrs)
+		if err := snap.store(p.db); err != nil {
+			return err
+		}
+		p.recentSnaps.Add(checkpoint.Hash(), snap)
+		p.logger.Info("Stored checkpoint snapshot to disk", "number", checkpoint.Number.Uint64(), "hash", checkpoint.Hash())
+		return nil
+	}
+
+	if s, ok := p.recentSnaps.Get(start.ParentHash); ok {
+		snap = s
+	} else if (start.Number.Uint64()-1)%CheckpointInterval == 0 {
+		if s, err := loadSnapshot(p.config, p.signatures, p.db, start.Number.Uint64(), start.Hash()); err == nil {
+			p.logger.Debug("Loaded snapshot from disk", "number", start.Number.Uint64(), "hash", start.Hash())
+			snap = s
+		}
+	}
+
+	// check if snapshot is nil
+	if snap == nil {
+		return fmt.Errorf("unknown error while retrieving snapshot at block number %v", checkpoint.Number.Uint64())
+	}
+
+	// Previous snapshot found, apply any pending headers on top of it
+	snap, err := snap.apply(headers, chain, nil, p.chainConfig, p.recentSnaps, true)
+	if err != nil {
+		return err
+	}
+	if snap.Number%CheckpointInterval == 0 && len(headers) > 0 {
+		if err = snap.store(p.db); err != nil {
+			return err
+		}
+		log.Trace("Stored snapshot to disk", "number", snap.Number, "hash", snap.Hash)
 	}
 	return nil
 }

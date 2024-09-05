@@ -19,6 +19,7 @@ package parlia
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -57,6 +58,8 @@ type ValidatorInfo struct {
 	Index       int                `json:"index:omitempty"` // The index should offset by 1
 	VoteAddress types.BLSPublicKey `json:"vote_address,omitempty"`
 }
+
+const lastSnapshot = "snap"
 
 // newSnapshot creates a new snapshot with the specified startup parameters. This
 // method does not initialize the set of recent validators, so only ever use it for
@@ -113,7 +116,7 @@ func SnapshotFullKey(number uint64, hash common.Hash) []byte {
 	return append(hexutility.EncodeTs(number), hash.Bytes()...)
 }
 
-var ErrNoSnapsnot = fmt.Errorf("no parlia snapshot")
+var ErrNoSnapsnot = errors.New("no parlia snapshot")
 
 // loadSnapshot loads an existing snapshot from the database.
 func loadSnapshot(config *chain.ParliaConfig, sigCache *lru.ARCCache[common.Hash, common.Address], db kv.RwDB, num uint64, hash common.Hash) (*Snapshot, error) {
@@ -144,6 +147,23 @@ func loadSnapshot(config *chain.ParliaConfig, sigCache *lru.ARCCache[common.Hash
 	return snap, nil
 }
 
+// getLatest getLatest snapshots number
+func getLatestSnapshotHeight(db kv.RwDB) (uint64, error) {
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	data, err := tx.GetOne(kv.ParliaSnapshot, []byte(lastSnapshot))
+	if err != nil {
+		return 0, err
+	}
+	if len(data) == 0 {
+		return 0, nil
+	}
+	return binary.BigEndian.Uint64(data[:8]), nil
+}
+
 // store inserts the snapshot into the database.
 func (s *Snapshot) store(db kv.RwDB) error {
 	blob, err := json.Marshal(s)
@@ -151,7 +171,13 @@ func (s *Snapshot) store(db kv.RwDB) error {
 		return err
 	}
 	return db.UpdateNosync(context.Background(), func(tx kv.RwTx) error {
-		return tx.Put(kv.ParliaSnapshot, SnapshotFullKey(s.Number, s.Hash), blob)
+		if err = tx.Put(kv.ParliaSnapshot, SnapshotFullKey(s.Number, s.Hash), blob); err != nil {
+			return err
+		}
+		if err = tx.Put(kv.ParliaSnapshot, []byte(lastSnapshot), hexutility.EncodeTs(s.Number)); err != nil {
+			return err
+		}
+		return nil
 	})
 }
 
@@ -235,7 +261,7 @@ func (s *Snapshot) updateAttestation(header *types.Header, chainConfig *chain.Co
 	}
 }
 
-func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderReader, parents []*types.Header, chainConfig *chain.Config, recentSnaps *lru.ARCCache[libcommon.Hash, *Snapshot]) (*Snapshot, error) {
+func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderReader, parents []*types.Header, chainConfig *chain.Config, recentSnaps *lru.ARCCache[libcommon.Hash, *Snapshot], verified bool) (*Snapshot, error) {
 	// Allow passing in no headers for cleaner code
 	if len(headers) == 0 {
 		return s, nil
@@ -260,7 +286,7 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 
 	for _, header := range headers {
 		number := header.Number.Uint64()
-		if number%100_000 == 0 {
+		if number%1_000_000 == 0 {
 			log.Info("[parlia] snapshots build, recover from headers", "block", number)
 		}
 		// Delete the oldest validator from the recent list to allow it signing again
@@ -271,9 +297,13 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 			delete(snap.RecentForkHashes, number-limit)
 		}
 		// Resolve the authorization key and check against signers
-		validator, err := ecrecover(header, s.sigCache, chainConfig.ChainID)
-		if err != nil {
-			return nil, err
+		validator := header.Coinbase
+		if !verified {
+			v, err := ecrecover(header, s.sigCache, chainConfig.ChainID)
+			if err != nil {
+				return nil, err
+			}
+			validator = v
 		}
 		// Disabling this validation due to issues with BEP-131 looks like is breaks the property that used to allow Erigon to sync Parlia without knowning the contract state
 		// Further investigation is required

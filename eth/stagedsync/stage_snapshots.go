@@ -385,6 +385,15 @@ func FillDBFromSnapshots(logPrefix string, ctx context.Context, tx kv.RwTx, dirs
 			// for now easier just store them in db
 			td := big.NewInt(0)
 			blockNumBytes := make([]byte, 8)
+			posa, isPoSa := engine.(consensus.PoSA)
+			var snapshotProgress uint64
+			var headers []*types.Header
+			if isPoSa {
+				snapshotProgress, err = posa.GetLatestSnapshotHeight()
+				if err != nil {
+					return err
+				}
+			}
 			chainReader := &ChainReaderImpl{config: &chainConfig, tx: tx, blockReader: blockReader}
 			if err := blockReader.HeadersRange(ctx, func(header *types.Header) error {
 				blockNum, blockHash := header.Number.Uint64(), header.Hash()
@@ -415,12 +424,16 @@ func FillDBFromSnapshots(logPrefix string, ctx context.Context, tx kv.RwTx, dirs
 						}
 					}
 				}
-				if engine != nil && engine.Type() == chain.ParliaConsensus {
-					// consensus may have own database, let's fill it
-					// different consensuses may have some conditions for validators snapshots
-					if (blockNum-1)%parlia.CheckpointInterval == 0 {
-						if err := engine.VerifyHeader(chainReader, header, true /* seal */); err != nil {
-							return err
+				if isPoSa {
+					if snapshotProgress == 0 || blockNum > snapshotProgress {
+						headers = append(headers, header)
+						if blockNum%parlia.CheckpointInterval == 0 {
+							// Fill bsc consensus snapshots may have some conditions for validators snapshots
+							if err := posa.ResetSnapshot(chainReader, headers); err != nil {
+								log.Error("reset parlia snapshots", "err", err)
+								return err
+							}
+							headers = []*types.Header{}
 						}
 					}
 				}

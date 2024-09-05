@@ -225,6 +225,8 @@ type PoSA interface {
 	AllowLightProcess(chain ChainReader, currentHeader *types.Header) bool
 	GetJustifiedNumberAndHash(chain ChainHeaderReader, header *types.Header) (uint64, libcommon.Hash, error)
 	GetFinalizedHeader(chain ChainHeaderReader, header *types.Header) *types.Header
+	ResetSnapshot(chain ChainHeaderReader, headers []*types.Header) error
+	GetLatestSnapshotHeight() (uint64, error)
 }
 
 type AsyncEngine interface {
