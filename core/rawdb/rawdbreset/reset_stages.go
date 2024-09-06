@@ -130,7 +130,7 @@ func ResetPolygonSync(tx kv.RwTx, db kv.RoDB, agg *state.Aggregator, br services
 		}
 	}
 
-	if err := ResetBlocks(tx, db, agg, br, bw, dirs, cc, logger); err != nil {
+	if err := ResetBlocks(tx, db, agg, br, bw, dirs, cc, nil, logger); err != nil {
 		return err
 	}
 

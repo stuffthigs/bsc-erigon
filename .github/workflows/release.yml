@@ -4,9 +4,9 @@ env:
   APPLICATION: "erigon"
   BUILDER_IMAGE: "ghcr.io/goreleaser/goreleaser-cross:v1.21.13"
   DOCKER_BASE_IMAGE: "alpine:3.20.2"
-  APP_REPO: "erigontech/erigon"
-  PACKAGE: "github.com/erigontech/erigon"
-  DOCKERHUB_REPOSITORY: "erigontech/erigon"
+  APP_REPO: "node-real/bsc-erigon"
+  PACKAGE: "github.com/node-real/bsc-erigon"
+  DOCKERHUB_REPOSITORY: "node-real/bsc-erigon"
   DOCKERFILE_PATH: "./Dockerfile.release"
   GITHUB_AUTOMATION_EMAIL: "github-automation@erigon.tech"
   GITHUB_AUTOMATION_NAME: "Erigon Github Automation"
@@ -77,11 +77,18 @@ jobs:
           echo "id=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "short_commit_id=$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Login to Docker Hub
+#      - name: Login to Docker Hub
+#        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  ## v3.3.0
+#        with:
+#          username: ${{ secrets.ORG_DOCKERHUB_ERIGONTECH_USERNAME }}
+#          password: ${{ secrets.ORG_DOCKERHUB_ERIGONTECH_TOKEN }}
+
+      - name: ghcr-login
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  ## v3.3.0
         with:
-          username: ${{ secrets.ORG_DOCKERHUB_ERIGONTECH_USERNAME }}
-          password: ${{ secrets.ORG_DOCKERHUB_ERIGONTECH_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf ## v3.2.0
@@ -92,7 +99,7 @@ jobs:
       - name: Build binaries with goreleaser
         env:
           BUILD_VERSION: ${{ inputs.release_version }}
-          DOCKER_URL: ${{ env.DOCKERHUB_REPOSITORY }}
+          DOCKER_URL: ghcr.io/${{github.repository}}
         run: |
           docker run --rm \
             -w /${{ env.APPLICATION }}/ \
@@ -114,7 +121,7 @@ jobs:
         if: ${{ inputs.perform_release }}
         env:
           BUILD_VERSION: ${{ inputs.release_version }}
-          DOCKER_URL: ${{ env.DOCKERHUB_REPOSITORY }}
+          DOCKER_URL: ghcr.io/${{github.repository}}
           DOCKER_PUBLISH_LATEST_CONDITION: ${{ inputs.publish_latest_tag && format('--tag {0}:latest ',env.DOCKERHUB_REPOSITORY) || '' }}
         run: |
           docker buildx build \
