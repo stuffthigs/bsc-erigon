@@ -40,6 +40,7 @@ import (
 	"github.com/erigontech/erigon/rpc"
 	"github.com/erigontech/erigon/turbo/adapter/ethapi"
 	"github.com/erigontech/erigon/turbo/rpchelper"
+	"github.com/erigontech/erigon/turbo/snapshotsync/freezeblocks"
 )
 
 // AccountRangeMaxResults is the maximum number of results to be returned
@@ -89,6 +90,7 @@ func (api *PrivateDebugAPIImpl) StorageRangeAt(ctx context.Context, blockHash co
 	}
 	defer tx.Rollback()
 
+	txNumsReader := rawdbv3.TxNums.WithCustomReadTxNumFunc(freezeblocks.ReadTxNumFuncFromBlockReader(ctx, api._blockReader))
 	number, err := api._blockReader.HeaderNumber(ctx, tx, blockHash)
 	if err != nil {
 		return StorageRangeResult{}, err
@@ -96,7 +98,7 @@ func (api *PrivateDebugAPIImpl) StorageRangeAt(ctx context.Context, blockHash co
 	if number == nil {
 		return StorageRangeResult{}, errors.New("block not found")
 	}
-	minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
+	minTxNum, err := txNumsReader.Min(tx, *number)
 	if err != nil {
 		return StorageRangeResult{}, err
 	}
@@ -199,7 +201,7 @@ func (api *PrivateDebugAPIImpl) AccountRange(ctx context.Context, blockNrOrHash 
 		}
 	}
 
-	dumper := state.NewDumper(tx, blockNumber)
+	dumper := state.NewDumper(tx, rawdbv3.TxNums.WithCustomReadTxNumFunc(freezeblocks.ReadTxNumFuncFromBlockReader(ctx, api._blockReader)), blockNumber)
 	res, err := dumper.IteratorDump(excludeCode, excludeStorage, common.BytesToAddress(startKey), maxResults)
 	if err != nil {
 		return state.IteratorDump{}, err
@@ -230,6 +232,8 @@ func (api *PrivateDebugAPIImpl) GetModifiedAccountsByNumber(ctx context.Context,
 		return nil, err
 	}
 
+	txNumsReader := rawdbv3.TxNums.WithCustomReadTxNumFunc(freezeblocks.ReadTxNumFuncFromBlockReader(ctx, api._blockReader))
+
 	// forces negative numbers to fail (too large) but allows zero
 	startNum := uint64(startNumber.Int64())
 	if startNum > latestBlock {
@@ -252,11 +256,11 @@ func (api *PrivateDebugAPIImpl) GetModifiedAccountsByNumber(ctx context.Context,
 	}
 
 	//[from, to)
-	startTxNum, err := rawdbv3.TxNums.Min(tx, startNum)
+	startTxNum, err := txNumsReader.Min(tx, startNum)
 	if err != nil {
 		return nil, err
 	}
-	endTxNum, err := rawdbv3.TxNums.Max(tx, endNum-1)
+	endTxNum, err := txNumsReader.Max(tx, endNum-1)
 	if err != nil {
 		return nil, err
 	}
@@ -303,6 +307,8 @@ func (api *PrivateDebugAPIImpl) GetModifiedAccountsByHash(ctx context.Context, s
 	}
 	defer tx.Rollback()
 
+	txNumsReader := rawdbv3.TxNums.WithCustomReadTxNumFunc(freezeblocks.ReadTxNumFuncFromBlockReader(ctx, api._blockReader))
+
 	startBlock, err := api.blockByHashWithSenders(ctx, tx, startHash)
 	if err != nil {
 		return nil, err
@@ -329,11 +335,11 @@ func (api *PrivateDebugAPIImpl) GetModifiedAccountsByHash(ctx context.Context, s
 	}
 
 	//[from, to)
-	startTxNum, err := rawdbv3.TxNums.Min(tx, startNum)
+	startTxNum, err := txNumsReader.Min(tx, startNum)
 	if err != nil {
 		return nil, err
 	}
-	endTxNum, err := rawdbv3.TxNums.Max(tx, endNum-1)
+	endTxNum, err := txNumsReader.Max(tx, endNum-1)
 	if err != nil {
 		return nil, err
 	}
@@ -346,6 +352,8 @@ func (api *PrivateDebugAPIImpl) AccountAt(ctx context.Context, blockHash common.
 		return nil, err
 	}
 	defer tx.Rollback()
+
+	txNumsReader := rawdbv3.TxNums.WithCustomReadTxNumFunc(freezeblocks.ReadTxNumFuncFromBlockReader(ctx, api._blockReader))
 
 	number, err := api._blockReader.HeaderNumber(ctx, tx, blockHash)
 	if err != nil {
@@ -360,7 +368,7 @@ func (api *PrivateDebugAPIImpl) AccountAt(ctx context.Context, blockHash common.
 		return nil, errors.New("block hash is not canonical")
 	}
 
-	minTxNum, err := rawdbv3.TxNums.Min(tx, *number)
+	minTxNum, err := txNumsReader.Min(tx, *number)
 	if err != nil {
 		return nil, err
 	}

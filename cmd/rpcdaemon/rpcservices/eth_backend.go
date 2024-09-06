@@ -122,6 +122,9 @@ func (back *RemoteBackend) FrozenBlocks() uint64                  { return back.
 func (back *RemoteBackend) FrozenBorBlocks() uint64               { return back.blockReader.FrozenBorBlocks() }
 func (back *RemoteBackend) FrozenBscBlobs() uint64                { return back.blockReader.FrozenBscBlobs() }
 func (back *RemoteBackend) FrozenFiles() (list []string)          { return back.blockReader.FrozenFiles() }
+func (back *RemoteBackend) CanonicalBodyForStorage(ctx context.Context, tx kv.Getter, blockNum uint64) (body *types.BodyForStorage, err error) {
+	return back.blockReader.CanonicalBodyForStorage(ctx, tx, blockNum)
+}
 func (back *RemoteBackend) FreezingCfg() ethconfig.BlocksFreezing {
 	return back.blockReader.FreezingCfg()
 }
@@ -339,6 +342,10 @@ func (back *RemoteBackend) LastSpanId(ctx context.Context, tx kv.Tx) (uint64, bo
 }
 
 func (back *RemoteBackend) LastFrozenEventId() uint64 {
+	panic("not implemented")
+}
+
+func (back *RemoteBackend) LastFrozenEventBlockNum() uint64 {
 	panic("not implemented")
 }
 

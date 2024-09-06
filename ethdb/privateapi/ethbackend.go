@@ -17,6 +17,7 @@
 package privateapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
@@ -251,6 +252,59 @@ func (s *EthBackendServer) Block(ctx context.Context, req *remote.BlockRequest) 
 	return &remote.BlockReply{BlockRlp: blockRlp, Senders: sendersBytes}, nil
 }
 
+func (s *EthBackendServer) CanonicalBodyForStorage(ctx context.Context, req *remote.CanonicalBodyForStorageRequest) (*remote.CanonicalBodyForStorageReply, error) {
+	tx, err := s.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	bd, err := s.blockReader.CanonicalBodyForStorage(ctx, tx, req.BlockNumber)
+	if err != nil {
+		return nil, err
+	}
+	if bd == nil {
+		return &remote.CanonicalBodyForStorageReply{}, nil
+	}
+	b := bytes.Buffer{}
+	if err := bd.EncodeRLP(&b); err != nil {
+		return nil, err
+	}
+	return &remote.CanonicalBodyForStorageReply{Body: b.Bytes()}, nil
+}
+
+func (s *EthBackendServer) CanonicalHash(ctx context.Context, req *remote.CanonicalHashRequest) (*remote.CanonicalHashReply, error) {
+	tx, err := s.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	hash, err := s.blockReader.CanonicalHash(ctx, tx, req.BlockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return &remote.CanonicalHashReply{Hash: gointerfaces.ConvertHashToH256(hash)}, nil
+}
+
+func (s *EthBackendServer) HeaderNumber(ctx context.Context, req *remote.HeaderNumberRequest) (*remote.HeaderNumberReply, error) {
+	tx, err := s.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	headerNum, err := s.blockReader.HeaderNumber(ctx, tx, gointerfaces.ConvertH256ToHash(req.Hash))
+	if err != nil {
+		return nil, err
+	}
+
+	if headerNum == nil {
+		return &remote.HeaderNumberReply{}, nil
+	}
+	return &remote.HeaderNumberReply{Number: headerNum}, nil
+}
+
 func (s *EthBackendServer) NodeInfo(_ context.Context, r *remote.NodesInfoRequest) (*remote.NodesInfoReply, error) {
 	nodesInfo, err := s.eth.NodesInfo(int(r.Limit))
 	if err != nil {
@@ -274,18 +328,41 @@ func (s *EthBackendServer) SubscribeLogs(server remote.ETHBACKEND_SubscribeLogsS
 	return errors.New("no logs filter available")
 }
 
-func (s *EthBackendServer) BorEvent(ctx context.Context, req *remote.BorEventRequest) (*remote.BorEventReply, error) {
+func (s *EthBackendServer) BorTxnLookup(ctx context.Context, req *remote.BorTxnLookupRequest) (*remote.BorTxnLookupReply, error) {
 	tx, err := s.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	_, ok, err := s.blockReader.EventLookup(ctx, tx, gointerfaces.ConvertH256ToHash(req.BorTxHash))
+
+	blockNum, ok, err := s.blockReader.EventLookup(ctx, tx, gointerfaces.ConvertH256ToHash(req.BorTxHash))
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return &remote.BorEventReply{}, nil
+	return &remote.BorTxnLookupReply{
+		BlockNumber: blockNum,
+		Present:     ok,
+	}, nil
+}
+
+func (s *EthBackendServer) BorEvents(ctx context.Context, req *remote.BorEventsRequest) (*remote.BorEventsReply, error) {
+	tx, err := s.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return &remote.BorEventReply{}, nil
+	defer tx.Rollback()
+
+	events, err := s.blockReader.EventsByBlock(ctx, tx, gointerfaces.ConvertH256ToHash(req.BlockHash), req.BlockNum)
+	if err != nil {
+		return nil, err
+	}
+
+	eventsRaw := make([][]byte, len(events))
+	for i, e := range events {
+		eventsRaw[i] = e
+	}
+
+	return &remote.BorEventsReply{
+		EventRlps: eventsRaw,
+	}, nil
 }
