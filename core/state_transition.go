@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/erigontech/erigon/consensus"
+	"math"
 	"slices"
 
 	"github.com/holiman/uint256"
@@ -332,13 +333,14 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*evmtype
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 
 	// BSC always gave gas bailout due to system transactions that set 2^256/2 gas limit and
-	// for Parlia consensus this flag should be always be set
-	if st.isParlia {
-		gasBailout = true
+	// So when trace systemTx, skip PreCheck
+	var skipCheck bool
+	if st.isParlia && st.evm.Config().Debug && st.msg.Gas() == math.MaxUint64/2 {
+		skipCheck = true
 	}
 
 	// Check clauses 1-3 and 6, buy gas if everything is correct
-	if err := st.preCheck(gasBailout); err != nil {
+	if err := st.preCheck(gasBailout || skipCheck); err != nil {
 		return nil, err
 	}
 	if st.evm.Config().Debug {
