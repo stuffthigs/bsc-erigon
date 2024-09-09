@@ -874,7 +874,6 @@ Loop:
 				txCount++
 				usedGas += txTask.UsedGas
 				logGas += txTask.UsedGas
-				log.Info("TxGasUsed", "usedGas", usedGas, "block", blockNum, "TxIndex", txTask.TxIndex)
 				mxExecGas.Add(float64(txTask.UsedGas))
 				mxExecTransactions.Add(1)
 
