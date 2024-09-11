@@ -169,7 +169,7 @@ func (v *BscView) BlobSidecarsSegment(blockNum uint64) (*Segment, bool) {
 
 func dumpBlobsRange(ctx context.Context, blockFrom, blockTo uint64, tmpDir, snapDir string, chainDB kv.RoDB, blobStore services.BlobStorage, blockReader services.FullBlockReader, chainConfig *chain.Config, workers int, lvl log.Lvl, logger log.Logger) (err error) {
 	f := coresnaptype.BlobSidecars.FileInfo(snapDir, blockFrom, blockTo)
-	sn, err := seg.NewCompressor(ctx, "Snapshot "+f.Type.Name(), f.Path, tmpDir, seg.MinPatternScore, workers, lvl, logger)
+	sn, err := seg.NewCompressor(ctx, "Snapshot "+f.Type.Name(), f.Path, tmpDir, seg.DefaultCfg, log.LvlTrace, logger)
 	if err != nil {
 		return err
 	}
@@ -231,7 +231,7 @@ func dumpBlobsRange(ctx context.Context, blockFrom, blockTo uint64, tmpDir, snap
 
 func DumpBlobs(ctx context.Context, blockFrom, blockTo uint64, chainConfig *chain.Config, tmpDir, snapDir string, chainDB kv.RoDB, workers int, lvl log.Lvl, blockReader services.FullBlockReader, blobStore services.BlobStorage, logger log.Logger) error {
 	for i := blockFrom; i < blockTo; i = chooseSegmentEnd(i, blockTo, coresnaptype.Enums.BscBlobs, chainConfig) {
-		blocksPerFile := snapcfg.MergeLimit("", coresnaptype.Enums.BscBlobs, i)
+		blocksPerFile := snapcfg.MergeLimitFromCfg(snapcfg.KnownCfg(""), coresnaptype.Enums.BscBlobs, i)
 		if blockTo-i < blocksPerFile {
 			break
 		}

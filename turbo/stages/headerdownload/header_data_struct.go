@@ -291,6 +291,7 @@ type HeaderDownload struct {
 	linkLimit              int         // Maximum allowed number of links
 	persistedLinkLimit     int         // Maximum allowed number of persisted links
 	anchorLimit            int         // Maximum allowed number of anchors
+	loopBlockLimit         uint        // Maximum allowed number of block
 	highestInDb            uint64      // Height of the highest block header in the database
 	highestHashInDb        common.Hash // Hash of the highest block header in the database
 	initialCycle           bool        // Whether downloader is used in the initial cycle, and is allowed to issue more requests when previous responses created or moved an anchor
@@ -326,6 +327,7 @@ type HeaderRecord struct {
 func NewHeaderDownload(
 	anchorLimit int,
 	linkLimit int,
+	loopBlockLimit uint,
 	engine consensus.Engine,
 	headerReader services.HeaderAndCanonicalReader,
 	logger log.Logger,
@@ -338,6 +340,7 @@ func NewHeaderDownload(
 		persistedLinkLimit: persistentLinkLimit,
 		linkLimit:          linkLimit - persistentLinkLimit,
 		anchorLimit:        anchorLimit,
+		loopBlockLimit:     loopBlockLimit,
 		engine:             engine,
 		links:              make(map[common.Hash]*Link),
 		anchorTree:         btree.NewG[*Anchor](32, func(a, b *Anchor) bool { return a.blockHeight < b.blockHeight }),

@@ -159,7 +159,7 @@ func (c *CommitteeSubscribeMgmt) sweepByStaleSlots(ctx context.Context) {
 		return curSlot-targetSlot > c.netConfig.AttestationPropagationSlotRange
 	}
 	// sweep every minute
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(time.Duration(c.beaconConfig.SecondsPerSlot) * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -167,11 +167,19 @@ func (c *CommitteeSubscribeMgmt) sweepByStaleSlots(ctx context.Context) {
 			return
 		case <-ticker.C:
 			curSlot := c.ethClock.GetCurrentSlot()
+			toRemoves := make([]uint64, 0)
 			c.validatorSubsMutex.Lock()
 			for committeeIdx, sub := range c.validatorSubs {
 				if slotIsStale(curSlot, sub.latestTargetSlot) {
-					delete(c.validatorSubs, committeeIdx)
+					toRemoves = append(toRemoves, committeeIdx)
 				}
+				// try remove aggregator flag to avoid unnecessary aggregation
+				if curSlot > sub.latestTargetSlot {
+					sub.aggregate = false
+				}
+			}
+			for _, idx := range toRemoves {
+				delete(c.validatorSubs, idx)
 			}
 			c.validatorSubsMutex.Unlock()
 		}
