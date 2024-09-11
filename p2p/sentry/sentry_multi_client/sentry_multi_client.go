@@ -183,6 +183,7 @@ func NewMultiClient(
 		hd = headerdownload.NewHeaderDownload(
 			512,       /* anchorLimit */
 			1024*1024, /* linkLimit */
+			syncCfg.LoopBlockLimit,
 			engine,
 			blockReader,
 			logger,

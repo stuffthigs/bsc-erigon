@@ -1156,6 +1156,9 @@ func (hd *HeaderDownload) ProcessHeader(sh ChainSegmentHeader, newBlock bool, pe
 func (hd *HeaderDownload) ProcessHeaders(csHeaders []ChainSegmentHeader, newBlock bool, peerID [64]byte) bool {
 	requestMore := false
 	for _, sh := range csHeaders {
+		if sh.Number > uint64(hd.loopBlockLimit)+hd.highestInDb {
+			continue
+		}
 		// Lock is acquired for every invocation of ProcessHeader
 		if hd.ProcessHeader(sh, newBlock, peerID) {
 			requestMore = true
