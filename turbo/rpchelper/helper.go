@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/kv"
 	"github.com/erigontech/erigon-lib/kv/kvcache"
@@ -87,7 +86,9 @@ func _GetBlockNumber(ctx context.Context, requireCanonical bool, blockNrOrHash r
 			if fs := parliafinality.GetFinalizationService(); fs != nil {
 				blockHash := fs.GetFinalizeBlockHash()
 				blockNum := rawdb.ReadHeaderNumber(tx, blockHash)
-				return *blockNum, blockHash, false, nil
+				if blockNum != nil {
+					return *blockNum, blockHash, false, nil
+				}
 			}
 			blockNumber, err = GetFinalizedBlockNumber(tx)
 			if err != nil {
