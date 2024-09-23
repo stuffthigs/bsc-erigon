@@ -84,6 +84,20 @@ func VerifyPresenceOfCancunHeaderFields(header *types.Header) error {
 	if header.ExcessBlobGas == nil {
 		return errors.New("header is missing excessBlobGas")
 	}
+	if header.ParentBeaconBlockRoot == nil {
+		return errors.New("header is missing parentBeaconBlockRoot")
+	}
+	return nil
+}
+
+// VerifyBscPresenceOfCancunHeaderFields checks that the fields introduced in Cancun (EIP-4844, EIP-4788) are present.
+func VerifyBscPresenceOfCancunHeaderFields(header *types.Header) error {
+	if header.BlobGasUsed == nil {
+		return errors.New("header is missing blobGasUsed")
+	}
+	if header.ExcessBlobGas == nil {
+		return errors.New("header is missing excessBlobGas")
+	}
 	if header.ParentBeaconBlockRoot != nil {
 		return errors.New("header has no nil ParentBeaconBlockRoot")
 	}
@@ -104,6 +118,20 @@ func VerifyAbsenceOfCancunHeaderFields(header *types.Header) error {
 	if header.ParentBeaconBlockRoot != nil {
 		return fmt.Errorf("invalid parentBeaconBlockRoot before fork: have %v, expected 'nil'", header.ParentBeaconBlockRoot)
 	}
+	return nil
+}
+
+// VerifyBscAbsenceOfCancunHeaderFields checks that the header doesn't have any fields added in Cancun (EIP-4844, EIP-4788).
+func VerifyBscAbsenceOfCancunHeaderFields(header *types.Header) error {
+	if header.BlobGasUsed != nil {
+		return fmt.Errorf("invalid blobGasUsed before fork: have %v, expected 'nil'", header.BlobGasUsed)
+	}
+	if header.ExcessBlobGas != nil {
+		return fmt.Errorf("invalid excessBlobGas before fork: have %v, expected 'nil'", header.ExcessBlobGas)
+	}
+	if header.ParentBeaconBlockRoot != nil {
+		return fmt.Errorf("invalid parentBeaconBlockRoot before fork: have %v, expected 'nil'", header.ParentBeaconBlockRoot)
+	}
 	if header.WithdrawalsHash != nil {
 		return fmt.Errorf("invalid WithdrawalsHash, have %#x, expected nil", header.WithdrawalsHash)
 	}
@@ -113,10 +141,10 @@ func VerifyAbsenceOfCancunHeaderFields(header *types.Header) error {
 // VerifyPresenceOfBohrHeaderFields checks that the fields introduced in Cancun (EIP-4844, EIP-4788) are present.
 func VerifyPresenceOfBohrHeaderFields(header *types.Header) error {
 	if header.BlobGasUsed == nil {
-		return fmt.Errorf("header is missing blobGasUsed")
+		return errors.New("header is missing blobGasUsed")
 	}
 	if header.ExcessBlobGas == nil {
-		return fmt.Errorf("header is missing excessBlobGas")
+		return errors.New("header is missing excessBlobGas")
 	}
 	if header.ParentBeaconBlockRoot == nil || *header.ParentBeaconBlockRoot != (libcommon.Hash{}) {
 		return fmt.Errorf("invalid parentBeaconRoot, have %#x, expected zero hash", header.ParentBeaconBlockRoot)
