@@ -12,10 +12,10 @@ env:
 
 on:
   push:
-    branches:
-      - 'main'
-    paths-ignore:
-      - '.github/**'
+#    branches:
+#      - 'main'
+#    paths-ignore:
+#      - '.github/**'
   workflow_dispatch:
 
 jobs:
