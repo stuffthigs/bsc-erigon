@@ -229,7 +229,9 @@ func (st *StateTransition) buyGas(gasBailout bool) error {
 	}
 
 	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
-		return err
+		if !gasBailout {
+			return err
+		}
 	}
 	st.gasRemaining += st.msg.Gas()
 	st.initialGas = st.msg.Gas()
@@ -335,7 +337,7 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*evmtype
 	// BSC always gave gas bailout due to system transactions that set 2^256/2 gas limit and
 	// So when trace systemTx, skip PreCheck
 	var skipCheck bool
-	if st.isParlia && st.evm.Config().Debug && st.msg.Gas() == math.MaxUint64/2 {
+	if st.isParlia && st.msg.Gas() == math.MaxUint64/2 && st.gasPrice.IsZero() {
 		skipCheck = true
 	}
 
