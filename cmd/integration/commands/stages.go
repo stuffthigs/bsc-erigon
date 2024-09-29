@@ -1438,9 +1438,6 @@ func newSync(ctx context.Context, db kv.RwDB, miningConfig *params.MiningConfig,
 	blockSnapBuildSema := semaphore.NewWeighted(int64(dbg.BuildSnapshotAllowance))
 	agg.SetSnapshotBuildSema(blockSnapBuildSema)
 
-	notifications := shards.NewNotifications(nil)
-	blockRetire := freezeblocks.NewBlockRetire(1, dirs, blockReader, blockWriter, db, chainConfig, notifications.Events, blockSnapBuildSema, logger)
-
 	var (
 		snapDb     kv.RwDB
 		recents    *lru.ARCCache[libcommon.Hash, *bor.Snapshot]
@@ -1457,7 +1454,7 @@ func newSync(ctx context.Context, db kv.RwDB, miningConfig *params.MiningConfig,
 		blobStore = parlia.BlobStore
 	}
 
-	notifications := &shards.Notifications{}
+	notifications := shards.NewNotifications(nil)
 	blockRetire := freezeblocks.NewBlockRetire(1, dirs, blockReader, blockWriter, db, blobStore, chainConfig, notifications.Events, blockSnapBuildSema, logger)
 
 	stages := stages2.NewDefaultStages(context.Background(), db, snapDb, blobStore, p2p.Config{}, &cfg, sentryControlServer, notifications, nil, blockReader, blockRetire, agg, nil, nil, engine, heimdallClient, recents, signatures, logger)
