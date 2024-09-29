@@ -93,7 +93,7 @@ func (br *BlockRetire) retireBscBlocks(ctx context.Context, minBlockNum uint64, 
 			if i%10000 == 0 {
 				logger.Info("remove sidecars", "blockNum", i)
 			}
-			blockHash, err := blockReader.CanonicalHash(ctx, roTx, i)
+			blockHash, _, err := blockReader.CanonicalHash(ctx, roTx, i)
 			if err != nil {
 				return false, err
 			}
@@ -161,9 +161,9 @@ func (v *BscView) Close() {
 	v.base.Close()
 }
 
-func (v *BscView) BlobSidecars() []*Segment { return v.base.segments(coresnaptype.BlobSidecars) }
+func (v *BscView) BlobSidecars() []*VisibleSegment { return v.base.segments(coresnaptype.BlobSidecars) }
 
-func (v *BscView) BlobSidecarsSegment(blockNum uint64) (*Segment, bool) {
+func (v *BscView) BlobSidecarsSegment(blockNum uint64) (*VisibleSegment, bool) {
 	return v.base.Segment(coresnaptype.BlobSidecars, blockNum)
 }
 
@@ -184,7 +184,7 @@ func dumpBlobsRange(ctx context.Context, blockFrom, blockTo uint64, tmpDir, snap
 	// Generate .seg file, which is just the list of beacon blocks.
 	for i := blockFrom; i < blockTo; i++ {
 		// read root.
-		blockHash, err := blockReader.CanonicalHash(ctx, tx, i)
+		blockHash, _, err := blockReader.CanonicalHash(ctx, tx, i)
 		if err != nil {
 			return err
 		}
@@ -254,14 +254,14 @@ func (s *BscRoSnapshots) ReadBlobSidecars(blockNum uint64) ([]*types.BlobSidecar
 		return nil, nil
 	}
 
-	idxNum := seg.Index()
+	idxNum := seg.src.Index()
 
 	if idxNum == nil {
 		return nil, nil
 	}
 	blockOffset := idxNum.OrdinalLookup(blockNum - idxNum.BaseDataID())
 
-	gg := seg.MakeGetter()
+	gg := seg.src.MakeGetter()
 	gg.Reset(blockOffset)
 	if !gg.HasNext() {
 		return nil, nil
