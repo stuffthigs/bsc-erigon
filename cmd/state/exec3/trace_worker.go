@@ -18,7 +18,6 @@ package exec3
 
 import (
 	"fmt"
-
 	"github.com/erigontech/erigon-lib/chain"
 	"github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/kv"
@@ -103,10 +102,10 @@ func (e *TraceWorker) GetLogs(txIndex int, txnHash common.Hash, blockNumber uint
 	return e.ibs.GetLogs(txIndex, txnHash, blockNumber, blockHash)
 }
 
-func (e *TraceWorker) ExecTxn(txNum uint64, txIndex int, txn types.Transaction, gasBailout bool) (*evmtypes.ExecutionResult, error) {
+func (e *TraceWorker) ExecTxn(txNum, blockNum uint64, txIndex int, txn types.Transaction, gasBailout bool) (*evmtypes.ExecutionResult, error) {
 	e.stateReader.SetTxNum(txNum)
 	e.ibs.Reset()
-	e.ibs.SetTxContext(txIndex)
+	e.ibs.SetTxContext(txIndex, blockNum)
 
 	msg, err := txn.AsMessage(*e.signer, e.header.BaseFee, e.rules)
 	if err != nil {

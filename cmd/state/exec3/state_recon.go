@@ -376,7 +376,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 				systemCall := func(ibs *state.IntraBlockState, index int) ([]byte, bool, error) {
 					vmConfig := vm.Config{NoReceipts: true, SkipAnalysis: txTask.SkipAnalysis}
 					msg := txTask.TxAsMessage
-					ibs.SetTxContext(txTask.TxIndex)
+					ibs.SetTxContext(txTask.TxIndex, txTask.BlockNum)
 					if rw.chainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 						rules := rw.chainConfig.Rules(header.Number.Uint64(), header.Time)
 						ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)
@@ -412,7 +412,7 @@ func (rw *ReconWorker) runTxTask(txTask *state.TxTask) error {
 		}
 		gp := new(core.GasPool).AddGas(txTask.Tx.GetGas()).AddBlobGas(txTask.Tx.GetBlobGas())
 		vmConfig := vm.Config{NoReceipts: true, SkipAnalysis: txTask.SkipAnalysis}
-		ibs.SetTxContext(txTask.TxIndex)
+		ibs.SetTxContext(txTask.TxIndex, txTask.BlockNum)
 		msg := txTask.TxAsMessage
 		msg.SetCheckNonce(!vmConfig.StatelessExec)
 		if msg.FeeCap().IsZero() {

@@ -58,7 +58,7 @@ func (api *OtterscanAPIImpl) genericTracer(dbtx kv.Tx, ctx context.Context, bloc
 		log.Warn("[rpc genericTracer] txn is nil", "blockNum", blockNum, "txIndex", txIndex)
 		return nil
 	}
-	_, err = executor.ExecTxn(txnID, txIndex, txn, false)
+	_, err = executor.ExecTxn(txnID, blockNum, txIndex, txn, false)
 	if err != nil {
 		return err
 	}

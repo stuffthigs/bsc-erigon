@@ -68,7 +68,7 @@ func (g *Generator) GetReceipts(ctx context.Context, cfg *chain.Config, tx kv.Tx
 	}
 	header := block.HeaderNoCopy()
 	for i, txn := range block.Transactions() {
-		ibs.SetTxContext(i)
+		ibs.SetTxContext(i, block.NumberU64())
 		receipt, _, err := core.ApplyTransaction(cfg, core.GetHashFn(header, getHeader), g.engine, nil, gp, ibs, noopWriter, header, txn, usedGas, usedBlobGas, vm.Config{})
 		if err != nil {
 			return nil, err

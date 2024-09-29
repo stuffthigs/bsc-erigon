@@ -280,7 +280,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 			rw.callTracer.Reset()
 			rw.vmCfg.SkipAnalysis = txTask.SkipAnalysis
 			msg := txTask.TxAsMessage
-			ibs.SetTxContext(txTask.TxIndex)
+			ibs.SetTxContext(txTask.TxIndex, txTask.BlockNum)
 			if rw.chainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 				rules := rw.chainConfig.Rules(header.Number.Uint64(), header.Time)
 				ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)
@@ -332,7 +332,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 		rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock())
 		rw.callTracer.Reset()
 		rw.vmCfg.SkipAnalysis = txTask.SkipAnalysis
-		ibs.SetTxContext(txTask.TxIndex)
+		ibs.SetTxContext(txTask.TxIndex, txTask.BlockNum)
 		msg := txTask.TxAsMessage
 		if msg.FeeCap().IsZero() && rw.engine != nil {
 			// Only zero-gas transactions may be service ones

@@ -80,9 +80,10 @@ type IntraBlockState struct {
 	// The refund counter, also used by state transitioning.
 	refund uint64
 
-	txIndex int
-	logs    []types.Logs
-	logSize uint
+	blockNum uint64
+	txIndex  int
+	logs     []types.Logs
+	logSize  uint
 
 	// Per-transaction access list
 	accessList *accessList
@@ -835,7 +836,7 @@ func (sdb *IntraBlockState) Print(chainRules chain.Rules) {
 // SetTxContext sets the current transaction index which
 // used when the EVM emits new state logs. It should be invoked before
 // transaction execution.
-func (sdb *IntraBlockState) SetTxContext(ti int) {
+func (sdb *IntraBlockState) SetTxContext(ti int, blockNum uint64) {
 	if len(sdb.logs) > 0 && ti == 0 {
 		err := fmt.Errorf("seems you forgot `ibs.Reset` or `ibs.TxIndex()`. len(sdb.logs)=%d, ti=%d", len(sdb.logs), ti)
 		panic(err)
@@ -845,6 +846,7 @@ func (sdb *IntraBlockState) SetTxContext(ti int) {
 		panic(err)
 	}
 	sdb.txIndex = ti
+	sdb.blockNum = blockNum
 	sdb.accessList = newAccessList()
 }
 
