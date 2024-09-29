@@ -38,7 +38,6 @@ require (
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/emicklei/dot v1.6.2
 	github.com/erigontech/erigon-lib v0.0.0-00010101000000-000000000000
-	github.com/ethereum/go-ethereum v1.13.5
 	github.com/fjl/gencodec v0.0.0-20230517082657-f9840df7b83e
 	github.com/gballet/go-verkle v0.0.0-20230607174250-df487255f46b
 	github.com/go-chi/chi/v5 v5.1.0
@@ -120,6 +119,7 @@ require (
 	github.com/d4l3k/messagediff v1.2.1 // indirect
 	github.com/elastic/go-freelru v0.13.0 // indirect
 	github.com/erigontech/speedtest v0.0.2 // indirect
+	github.com/ethereum/go-ethereum v1.13.5 // indirect
 	github.com/go-kit/kit v0.12.0 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
