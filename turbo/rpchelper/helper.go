@@ -100,7 +100,9 @@ func _GetBlockNumber(ctx context.Context, requireCanonical bool, blockNrOrHash r
 			if fs := parliafinality.GetFinalizationService(); fs != nil {
 				blockHash := fs.GetSafeBlockHash()
 				blockNum := rawdb.ReadHeaderNumber(tx, blockHash)
-				return *blockNum, blockHash, false, true, nil
+				if blockNum != nil {
+					return *blockNum, blockHash, false, true, nil
+				}
 			}
 			blockNumber, err = GetSafeBlockNumber(tx)
 			if err != nil {
