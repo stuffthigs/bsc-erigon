@@ -145,7 +145,11 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 	rules := txTask.Rules
 	var err error
 	header := txTask.Header
-
+	var lastBlockTime uint64
+	_, isPoSA := rw.execArgs.Engine.(consensus.PoSA)
+	if isPoSA {
+		lastBlockTime = header.Time - rw.execArgs.ChainConfig.Parlia.Period
+	}
 	switch {
 	case txTask.TxIndex == -1:
 		if txTask.BlockNum == 0 {
@@ -163,23 +167,24 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 		syscall := func(contract common.Address, data []byte, ibs *state.IntraBlockState, header *types.Header, constCall bool) ([]byte, error) {
 			return core.SysCallContract(contract, data, rw.execArgs.ChainConfig, ibs, header, rw.execArgs.Engine, constCall /* constCall */)
 		}
-		_, isPoSA := rw.execArgs.Engine.(consensus.PoSA)
 		if isPoSA && !rw.execArgs.ChainConfig.IsFeynman(header.Number.Uint64(), header.Time) {
-			lastBlockTime := header.Time - rw.execArgs.ChainConfig.Parlia.Period
-			parent, _ := rw.execArgs.BlockReader.HeaderByHash(rw.ctx, rw.chainTx, header.ParentHash)
-			if parent != nil {
-				lastBlockTime = parent.Time
-			}
 			systemcontracts.UpgradeBuildInSystemContract(rw.execArgs.ChainConfig, header.Number, lastBlockTime, header.Time, ibs, rw.logger)
 		}
-		rw.execArgs.Engine.Initialize(rw.execArgs.ChainConfig, rw.chain, header, ibs, syscall, rw.logger, nil)
-		txTask.Error = ibs.FinalizeTx(rules, noop)
+		if err := rw.execArgs.Engine.Initialize(rw.execArgs.ChainConfig, rw.chain, header, ibs, syscall, rw.logger, nil); err != nil {
+			txTask.Error = err
+		} else {
+			txTask.Error = ibs.FinalizeTx(rules, noop)
+		}
 	case txTask.Final:
 		if txTask.BlockNum == 0 {
 			break
 		}
 
 		if _, isPoSa := rw.execArgs.Engine.(consensus.PoSA); isPoSa {
+			// Is an empty block
+			if rw.execArgs.ChainConfig.IsFeynman(header.Number.Uint64(), header.Time) && txTask.TxIndex == 0 {
+				systemcontracts.UpgradeBuildInSystemContract(rw.execArgs.ChainConfig, header.Number, lastBlockTime, header.Time, ibs, rw.logger)
+			}
 			break
 		}
 
