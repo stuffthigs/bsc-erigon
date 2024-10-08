@@ -7,7 +7,6 @@ import (
 	"github.com/erigontech/erigon-lib/chain/networkname"
 	"github.com/erigontech/erigon-lib/chain/snapcfg"
 	"github.com/erigontech/erigon-lib/common/background"
-	"github.com/erigontech/erigon-lib/common/dbg"
 	"github.com/erigontech/erigon-lib/downloader/snaptype"
 	"github.com/erigontech/erigon-lib/kv"
 	"github.com/erigontech/erigon-lib/log/v3"
@@ -22,8 +21,6 @@ import (
 	"reflect"
 )
 
-var BscProduceFiles = dbg.EnvBool("BSC_PRODUCE_FILES", false)
-
 const (
 	bscMinSegFrom    = 39_700_000
 	chapelMinSegFrom = 39_500_000
@@ -34,10 +31,6 @@ func (br *BlockRetire) dbHasEnoughDataForBscRetire(ctx context.Context) (bool, e
 }
 
 func (br *BlockRetire) retireBscBlocks(ctx context.Context, minBlockNum uint64, maxBlockNum uint64, lvl log.Lvl, seedNewSnapshots func(downloadRequest []services.DownloadRequest) error, onDelete func(l []string) error) (bool, error) {
-	if !BscProduceFiles {
-		return false, nil
-	}
-
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
