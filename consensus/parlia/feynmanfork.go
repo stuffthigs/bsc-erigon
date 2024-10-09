@@ -102,7 +102,8 @@ func (p *Parlia) updateValidatorSetV2(chain consensus.ChainHeaderReader, ibs *st
 	// 1. get all validators and its voting header.Nu power
 	parent := chain.GetHeader(header.ParentHash, header.Number.Uint64()-1)
 
-	if validatorItemsCache == nil && maxElectedValidatorsCache == big.NewInt(0) {
+	_, ok := ibs.StateReader.(*state.HistoryReaderV3)
+	if (validatorItemsCache == nil && maxElectedValidatorsCache == big.NewInt(0)) || ok {
 		stateReader := state.NewHistoryReaderV3()
 		stateReader.SetTx(tx)
 		maxTxNum, _ := rawdbv3.TxNums.Max(tx, header.Number.Uint64()-1)
