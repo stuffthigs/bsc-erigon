@@ -138,9 +138,11 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 	rw.stateReader.SetTxNum(txTask.TxNum)
 	rw.stateReader.ResetReadSet()
 	rw.stateWriter = state.NewNoopWriter()
+	//rw.stateReader.SetTrace(true)
 
 	rw.ibs.Reset()
 	ibs := rw.ibs
+	//ibs.SetTrace(true)
 
 	rules := txTask.Rules
 	var err error
@@ -193,7 +195,7 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			return core.SysCallContract(contract, data, rw.execArgs.ChainConfig, ibs, header, rw.execArgs.Engine, false /* constCall */)
 		}
 
-		_, _, _, err := rw.execArgs.Engine.Finalize(rw.execArgs.ChainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, nil, 0, nil, rw.logger)
+		_, _, _, err := rw.execArgs.Engine.Finalize(rw.execArgs.ChainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, nil, txTask.TxIndex, rw.chainTx, rw.logger)
 		if err != nil {
 			txTask.Error = err
 		}
@@ -202,9 +204,9 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			return core.SysCallContract(contract, data, rw.execArgs.ChainConfig, ibs, header, rw.execArgs.Engine, false /* constCall */)
 		}
 
-		systemCall := func(ibs *state.IntraBlockState, index int) ([]byte, bool, error) {
+		systemCall := func(ibs *state.IntraBlockState) ([]byte, bool, error) {
 
-			rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.execArgs.ChainConfig.GetMaxBlobGasPerBlock())
+			rw.taskGasPool.Reset(txTask.Tx.GetGas(), txTask.Tx.GetBlobGas())
 			if tracer := rw.consumer.NewTracer(); tracer != nil {
 				rw.vmConfig.Debug = true
 				rw.vmConfig.Tracer = tracer
@@ -212,11 +214,17 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			rw.vmConfig.SkipAnalysis = txTask.SkipAnalysis
 			msg := txTask.TxAsMessage
 			ibs.SetTxContext(txTask.TxIndex, txTask.BlockNum)
+			msg.SetCheckNonce(!rw.vmConfig.StatelessExec)
 			if rw.execArgs.ChainConfig.IsCancun(header.Number.Uint64(), header.Time) {
 				rules := rw.execArgs.ChainConfig.Rules(header.Number.Uint64(), header.Time)
 				ibs.Prepare(rules, msg.From(), txTask.EvmBlockContext.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList(), nil)
 			}
-			rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, core.NewEVMTxContext(msg), ibs, *rw.vmConfig, rules)
+
+			txContext := core.NewEVMTxContext(msg)
+			if rw.vmConfig.TraceJumpDest {
+				txContext.TxHash = txTask.Tx.Hash()
+			}
+			rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, txContext, ibs, *rw.vmConfig, rules)
 			// Increment the nonce for the next transaction
 			ibs.SetNonce(msg.From(), ibs.GetNonce(msg.From())+1)
 			ret, leftOverGas, err := rw.evm.Call(
@@ -240,8 +248,9 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			return ret, true, nil
 		}
 
-		_, _, _, err := rw.execArgs.Engine.Finalize(rw.execArgs.ChainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, systemCall, txTask.TxIndex, nil, rw.logger)
+		_, _, _, err := rw.execArgs.Engine.Finalize(rw.execArgs.ChainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, txTask.Requests, rw.chain, syscall, systemCall, txTask.TxIndex, rw.chainTx, rw.logger)
 		if err != nil {
+			log.Error("run system tx err", "block Number", txTask.BlockNum, "txIndex", txTask.TxIndex, "err", err)
 			txTask.Error = err
 		}
 	default:
@@ -271,6 +280,7 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 		// MA applytx
 		applyRes, err := core.ApplyMessage(rw.evm, msg, rw.taskGasPool, true /* refunds */, false /* gasBailout */)
 		if err != nil {
+			log.Error("run tx err", "block Number", txTask.BlockNum, "txIndex", txTask.TxIndex, "err", err)
 			txTask.Error = err
 		} else {
 			txTask.Failed = applyRes.Failed()

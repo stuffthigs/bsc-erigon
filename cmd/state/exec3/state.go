@@ -275,7 +275,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 			return core.SysCallContract(contract, data, rw.chainConfig, ibs, header, rw.engine, false /* constCall */)
 		}
 
-		systemCall := func(ibs *state.IntraBlockState, index int) ([]byte, bool, error) {
+		systemCall := func(ibs *state.IntraBlockState) ([]byte, bool, error) {
 			rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock())
 			rw.callTracer.Reset()
 			rw.vmCfg.SkipAnalysis = txTask.SkipAnalysis
@@ -307,19 +307,6 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 				txTask.Logs = ibs.GetLogs(txTask.TxIndex, txTask.Tx.Hash(), txTask.BlockNum, txTask.BlockHash)
 				txTask.TraceFroms = rw.callTracer.Froms()
 				txTask.TraceTos = rw.callTracer.Tos()
-			}
-
-			if txTask.Error == nil {
-				txTask.BalanceIncreaseSet = ibs.BalanceIncreaseSet()
-				//for addr, bal := range txTask.BalanceIncreaseSet {
-				//	fmt.Printf("BalanceIncreaseSet [%x]=>[%d]\n", addr, &bal)
-				//}
-				if err = ibs.MakeWriteSet(rules, rw.stateWriter); err != nil {
-					panic(err)
-				}
-				txTask.ReadLists = rw.stateReader.ReadSet()
-				txTask.WriteLists = rw.stateWriter.WriteSet()
-				txTask.AccountPrevs, txTask.AccountDels, txTask.StoragePrevs, txTask.CodePrevs = rw.stateWriter.PrevAndDels()
 			}
 			return ret, true, nil
 		}
