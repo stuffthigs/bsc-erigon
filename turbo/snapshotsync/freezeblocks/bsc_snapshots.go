@@ -42,7 +42,7 @@ func (br *BlockRetire) retireBscBlocks(ctx context.Context, minBlockNum uint64, 
 	chainConfig := fromdb.ChainConfig(br.db)
 	var minimumBlob uint64
 	notifier, logger, blockReader, tmpDir, db, workers := br.notifier, br.logger, br.blockReader, br.tmpDir, br.db, br.workers
-	if chainConfig.ChainName == networkname.BSCChainName {
+	if chainConfig.ChainName == networkname.BSC {
 		minimumBlob = bscMinSegFrom
 	} else {
 		minimumBlob = chapelMinSegFrom
@@ -66,7 +66,7 @@ func (br *BlockRetire) retireBscBlocks(ctx context.Context, minBlockNum uint64, 
 	}
 
 	if blocksRetired {
-		if err := snapshots.ReopenFolder(); err != nil {
+		if err := snapshots.OpenFolder(); err != nil {
 			return true, fmt.Errorf("reopen: %w", err)
 		}
 		snapshots.LogStat("bsc:retire")
@@ -127,8 +127,8 @@ func (s *BscRoSnapshots) Ranges() []Range {
 	return view.base.Ranges()
 }
 
-func (s *BscRoSnapshots) ReopenFolder() error {
-	files, _, err := typedSegments(s.dir, s.segmentsMin.Load(), coresnaptype.BscSnapshotTypes, true)
+func (s *BscRoSnapshots) OpenFolder() error {
+	files, _, err := typedSegments(s.dir, coresnaptype.BscSnapshotTypes, true)
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (s *BscRoSnapshots) ReopenFolder() error {
 		_, fName := filepath.Split(f.Path)
 		list = append(list, fName)
 	}
-	return s.ReopenList(list, false)
+	return s.OpenList(list, false)
 }
 
 type BscView struct {
@@ -154,7 +154,7 @@ func (v *BscView) Close() {
 	v.base.Close()
 }
 
-func (v *BscView) BlobSidecars() []*VisibleSegment { return v.base.segments(coresnaptype.BlobSidecars) }
+func (v *BscView) BlobSidecars() []*VisibleSegment { return nil }
 
 func (v *BscView) BlobSidecarsSegment(blockNum uint64) (*VisibleSegment, bool) {
 	return v.base.Segment(coresnaptype.BlobSidecars, blockNum)

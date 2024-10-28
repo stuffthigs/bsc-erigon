@@ -324,9 +324,6 @@ func parseSignature(payload []byte, pos int, legacy bool, cfgChainId *uint256.In
 			}
 		}
 	} else {
-		if sig.V.GtUint64(1) {
-			return 0, 0, fmt.Errorf("v is loo large: %s", &sig.V)
-		}
 		yParity = byte(sig.V.Uint64())
 	}
 
@@ -586,6 +583,10 @@ func (ctx *TxParseContext) parseTransactionBody(payload []byte, pos, p0 int, slo
 			}
 			sigHashLen += uint(chainIDLen) // For chainId
 			sigHashLen += 2                // For two extra zeros
+		}
+	} else {
+		if ctx.Signature.V.GtUint64(1) {
+			return 0, fmt.Errorf("%w: v is loo large: %s", ErrParseTxn, &ctx.Signature.V)
 		}
 	}
 
@@ -1046,15 +1047,6 @@ func (al AccessList) StorageKeys() int {
 		sum += len(tuple.StorageKeys)
 	}
 	return sum
-}
-
-func (al AccessList) HasAddr(addr common.Address) bool {
-	for _, tuple := range al {
-		if tuple.Address == addr {
-			return true
-		}
-	}
-	return false
 }
 
 // Removes everything but the payload body from blob tx and prepends 0x3 at the beginning - no copy

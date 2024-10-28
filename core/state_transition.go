@@ -385,17 +385,6 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*evmtype
 			}
 
 			// 2. authority recover
-
-			// TODO: these signature checks should ideally be in RecoverSigner, a new PR on 7702 should simplify this
-			// adding this to pass tests for now
-			if auth.S.Cmp(crypto.Secp256k1halfN) > 0 {
-				return nil, fmt.Errorf("invalid signature S, skipping, auth index %d", i)
-			}
-
-			if !auth.V.Eq(u256.Num0) && !auth.V.Eq(u256.Num1) {
-				return nil, fmt.Errorf("invalid v value: %d", auth.V.Uint64())
-			}
-
 			authorityPtr, err := auth.RecoverSigner(data, b[:])
 			if err != nil {
 				log.Debug("authority recover failed, skipping", "err", err, "auth index", i)
@@ -431,7 +420,11 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*evmtype
 			}
 
 			// 7. set authority code
-			st.state.SetCode(authority, types.AddressToDelegation(auth.Address))
+			if auth.Address == (libcommon.Address{}) {
+				st.state.SetCode(authority, nil)
+			} else {
+				st.state.SetCode(authority, types.AddressToDelegation(auth.Address))
+			}
 
 			// 8. increase the nonce of authority
 			st.state.SetNonce(authority, authorityNonce+1)

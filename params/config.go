@@ -215,29 +215,29 @@ func NewSnapshotConfig(checkpointInterval uint64, inmemorySnapshots int, inmemor
 
 func ChainConfigByChainName(chain string) *chain.Config {
 	switch chain {
-	case networkname.MainnetChainName:
+	case networkname.Mainnet:
 		return MainnetChainConfig
-	case networkname.DevChainName:
+	case networkname.Dev:
 		return AllCliqueProtocolChanges
-	case networkname.HoleskyChainName:
+	case networkname.Holesky:
 		return HoleskyChainConfig
-	case networkname.SepoliaChainName:
+	case networkname.Sepolia:
 		return SepoliaChainConfig
-	case networkname.BSCChainName:
+	case networkname.BSC:
 		return BSCChainConfig
-	case networkname.ChapelChainName:
+	case networkname.Chapel:
 		return ChapelChainConfig
-	case networkname.RialtoChainName:
+	case networkname.Rialto:
 		return RialtoChainConfig
-	case networkname.AmoyChainName:
+	case networkname.Amoy:
 		return AmoyChainConfig
-	case networkname.BorMainnetChainName:
+	case networkname.BorMainnet:
 		return BorMainnetChainConfig
-	case networkname.BorDevnetChainName:
+	case networkname.BorDevnet:
 		return BorDevnetChainConfig
-	case networkname.GnosisChainName:
+	case networkname.Gnosis:
 		return GnosisChainConfig
-	case networkname.ChiadoChainName:
+	case networkname.Chiado:
 		return ChiadoChainConfig
 	case networkname.Test:
 		return TestChainConfig
@@ -248,27 +248,27 @@ func ChainConfigByChainName(chain string) *chain.Config {
 
 func GenesisHashByChainName(chain string) *libcommon.Hash {
 	switch chain {
-	case networkname.MainnetChainName:
+	case networkname.Mainnet:
 		return &MainnetGenesisHash
-	case networkname.HoleskyChainName:
+	case networkname.Holesky:
 		return &HoleskyGenesisHash
-	case networkname.SepoliaChainName:
+	case networkname.Sepolia:
 		return &SepoliaGenesisHash
-	case networkname.BSCChainName:
+	case networkname.BSC:
 		return &BSCGenesisHash
-	case networkname.ChapelChainName:
+	case networkname.Chapel:
 		return &ChapelGenesisHash
-	case networkname.RialtoChainName:
+	case networkname.Rialto:
 		return &RialtoGenesisHash
-	case networkname.AmoyChainName:
+	case networkname.Amoy:
 		return &AmoyGenesisHash
-	case networkname.BorMainnetChainName:
+	case networkname.BorMainnet:
 		return &BorMainnetGenesisHash
-	case networkname.BorDevnetChainName:
+	case networkname.BorDevnet:
 		return &BorDevnetGenesisHash
-	case networkname.GnosisChainName:
+	case networkname.Gnosis:
 		return &GnosisGenesisHash
-	case networkname.ChiadoChainName:
+	case networkname.Chiado:
 		return &ChiadoGenesisHash
 	case networkname.Test:
 		return &TestGenesisHash
