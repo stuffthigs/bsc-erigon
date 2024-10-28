@@ -1689,14 +1689,9 @@ func (br *BlockRetire) RetireBlocks(ctx context.Context, requestedMinBlockNum ui
 		}
 
 		if includeBsc {
-			for {
-				okBsc, err = br.retireBscBlocks(ctx, br.blockReader.FrozenBscBlobs(), minBlockNum, lvl, seedNewSnapshots, onDeleteSnapshots)
-				if err != nil {
-					return err
-				}
-				if !okBsc {
-					break
-				}
+			okBsc, err = br.retireBscBlocks(ctx, br.blockReader.FrozenBscBlobs(), maxBlockNum, lvl, seedNewSnapshots, onDeleteSnapshots)
+			if err != nil {
+				return err
 			}
 		}
 

@@ -154,7 +154,9 @@ func (v *BscView) Close() {
 	v.base.Close()
 }
 
-func (v *BscView) BlobSidecars() []*VisibleSegment { return nil }
+func (v *BscView) BlobSidecars() []*VisibleSegment {
+	return v.base.segmentsByType(coresnaptype.BlobSidecars)
+}
 
 func (v *BscView) BlobSidecarsSegment(blockNum uint64) (*VisibleSegment, bool) {
 	return v.base.Segment(coresnaptype.BlobSidecars, blockNum)
