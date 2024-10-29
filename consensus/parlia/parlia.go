@@ -596,7 +596,7 @@ func ValidateHeaderUnusedFields(header *types.Header) error {
 		return errInvalidUncleHash
 	}
 
-	if header.RequestsRoot != nil {
+	if header.RequestsHash != nil {
 		return consensus.ErrUnexpectedRequests
 	}
 
@@ -933,18 +933,15 @@ func (p *Parlia) splitTxs(txs types.Transactions, header *types.Header) (userTxs
 // Note: The block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
 func (p *Parlia) Finalize(_ *chain.Config, header *types.Header, state *state.IntraBlockState,
-	txs types.Transactions, _ []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal, requests types.Requests,
+	txs types.Transactions, _ []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal,
 	chain consensus.ChainReader, syscall consensus.SystemCall, systemTxCall consensus.SystemTxCall, txIndex int, tx kv.Tx,
-	logger log.Logger) (types.Transactions, types.Receipts, types.Requests, error) {
-	if requests != nil || header.RequestsRoot != nil {
-		return nil, nil, nil, consensus.ErrUnexpectedRequests
-	}
+	logger log.Logger) (types.Transactions, types.Receipts, types.FlatRequests, error) {
 	return p.finalize(header, state, txs, receipts, chain, false, systemTxCall, txIndex, tx, logger)
 }
 
 func (p *Parlia) finalize(header *types.Header, ibs *state.IntraBlockState, txs types.Transactions,
 	receipts types.Receipts, chain consensus.ChainHeaderReader, mining bool, systemTxCall consensus.SystemTxCall,
-	txIndex int, tx kv.Tx, logger log.Logger) (types.Transactions, types.Receipts, types.Requests, error) {
+	txIndex int, tx kv.Tx, logger log.Logger) (types.Transactions, types.Receipts, types.FlatRequests, error) {
 	userTxs, systemTxs, err := p.splitTxs(txs, header)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1144,18 +1141,18 @@ func (p *Parlia) distributeFinalityReward(chain consensus.ChainHeaderReader, sta
 // Note: The block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
 func (p *Parlia) FinalizeAndAssemble(chainConfig *chain.Config, header *types.Header, ibs *state.IntraBlockState,
-	txs types.Transactions, uncles []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal, requests types.Requests,
+	txs types.Transactions, uncles []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal,
 	chain consensus.ChainReader, syscall consensus.SystemCall, call consensus.Call, logger log.Logger,
-) (*types.Block, types.Transactions, types.Receipts, error) {
-	if requests != nil || header.RequestsRoot != nil {
-		return nil, nil, nil, consensus.ErrUnexpectedRequests
+) (*types.Block, types.Transactions, types.Receipts, types.FlatRequests, error) {
+	if header.RequestsHash != nil {
+		return nil, nil, nil, nil, consensus.ErrUnexpectedRequests
 	}
 
 	outTxs, outReceipts, _, err := p.finalize(header, ibs, txs, receipts, chain, true, nil, 0, nil, logger)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return types.NewBlock(header, outTxs, nil, outReceipts, withdrawals, requests), outTxs, outReceipts, nil
+	return types.NewBlock(header, outTxs, nil, outReceipts, withdrawals), outTxs, outReceipts, nil, nil
 }
 
 // Authorize injects a private key into the consensus engine to mint new blocks

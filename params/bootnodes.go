@@ -174,25 +174,25 @@ func KnownDNSNetwork(genesis libcommon.Hash, protocol string) string {
 
 func BootnodeURLsOfChain(chain string) []string {
 	switch chain {
-	case networkname.MainnetChainName:
+	case networkname.Mainnet:
 		return MainnetBootnodes
-	case networkname.HoleskyChainName:
+	case networkname.Holesky:
 		return HoleskyBootnodes
-	case networkname.SepoliaChainName:
+	case networkname.Sepolia:
 		return SepoliaBootnodes
-	case networkname.AmoyChainName:
+	case networkname.Amoy:
 		return AmoyBootnodes
-	case networkname.BorMainnetChainName:
+	case networkname.BorMainnet:
 		return BorMainnetBootnodes
-	case networkname.GnosisChainName:
+	case networkname.Gnosis:
 		return GnosisBootnodes
-	case networkname.ChiadoChainName:
+	case networkname.Chiado:
 		return ChiadoBootnodes
-	case networkname.BSCChainName:
+	case networkname.BSC:
 		return BscBootnodes
-	case networkname.ChapelChainName:
+	case networkname.Chapel:
 		return ChapelBootnodes
-	case networkname.RialtoChainName:
+	case networkname.Rialto:
 		return RialtoBootnodes
 	default:
 		return []string{}
@@ -201,13 +201,13 @@ func BootnodeURLsOfChain(chain string) []string {
 
 func StaticPeerURLsOfChain(chain string) []string {
 	switch chain {
-	case networkname.SepoliaChainName:
+	case networkname.Sepolia:
 		return SepoliaStaticPeers
-	case networkname.BSCChainName:
+	case networkname.BSC:
 		return BscStaticPeers
-	case networkname.ChapelChainName:
+	case networkname.Chapel:
 		return ChapelStaticPeers
-	case networkname.RialtoChainName:
+	case networkname.Rialto:
 		return RialtoStaticPeers
 	default:
 		return []string{}

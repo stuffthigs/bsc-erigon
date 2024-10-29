@@ -19,8 +19,8 @@ func init() {
 
 func initTypes() {
 	bscTypes := append(BlockSnapshotTypes, BscSnapshotTypes...)
-	snapcfg.RegisterKnownTypes(networkname.BSCChainName, bscTypes)
-	snapcfg.RegisterKnownTypes(networkname.ChapelChainName, bscTypes)
+	snapcfg.RegisterKnownTypes(networkname.BSC, bscTypes)
+	snapcfg.RegisterKnownTypes(networkname.Chapel, bscTypes)
 }
 
 var (
@@ -37,13 +37,12 @@ var (
 			func(ctx context.Context, info snaptype.FileInfo, salt uint32, _ *chain.Config, tmpDir string, p *background.Progress, lvl log.Lvl, logger log.Logger) (err error) {
 				num := make([]byte, binary.MaxVarintLen64)
 				cfg := recsplit.RecSplitArgs{
-					Enums:              true,
-					BucketSize:         2000,
-					LeafSize:           8,
-					TmpDir:             tmpDir,
-					Salt:               &salt,
-					BaseDataID:         info.From,
-					LessFalsePositives: true,
+					Enums:      true,
+					BucketSize: 2000,
+					LeafSize:   8,
+					TmpDir:     tmpDir,
+					Salt:       &salt,
+					BaseDataID: info.From,
 				}
 				if err := snaptype.BuildIndex(ctx, info, cfg, log.LvlDebug, p, func(idx *recsplit.RecSplit, i, offset uint64, word []byte) error {
 					p.Processed.Add(1)

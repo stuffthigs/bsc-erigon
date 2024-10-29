@@ -272,16 +272,16 @@ func WaitForDownloader(ctx context.Context, logPrefix string, dirs datadir.Dirs,
 
 	// Find minimum block to download.
 	if blockReader.FreezingCfg().NoDownloader || snapshotDownloader == nil {
-		if err := snapshots.ReopenFolder(); err != nil {
+		if err := snapshots.OpenFolder(); err != nil {
 			return err
 		}
 		if cc.Bor != nil {
-			if err := borSnapshots.ReopenFolder(); err != nil {
+			if err := borSnapshots.OpenFolder(); err != nil {
 				return err
 			}
 		}
 		if cc.Parlia != nil {
-			if err := bscSnapshots.ReopenFolder(); err != nil {
+			if err := bscSnapshots.OpenFolder(); err != nil {
 				return err
 			}
 		}
@@ -393,18 +393,18 @@ func WaitForDownloader(ctx context.Context, logPrefix string, dirs datadir.Dirs,
 		}
 	}
 
-	if err := snapshots.ReopenFolder(); err != nil {
+	if err := snapshots.OpenFolder(); err != nil {
 		return err
 	}
 
 	if cc.Bor != nil {
-		if err := borSnapshots.ReopenFolder(); err != nil {
+		if err := borSnapshots.OpenFolder(); err != nil {
 			return err
 		}
 	}
 
 	if cc.Parlia != nil {
-		if err := bscSnapshots.ReopenFolder(); err != nil {
+		if err := bscSnapshots.OpenFolder(); err != nil {
 			return err
 		}
 	}

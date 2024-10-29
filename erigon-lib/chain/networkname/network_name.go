@@ -17,33 +17,41 @@
 package networkname
 
 const (
-	MainnetChainName        = "mainnet"
-	HoleskyChainName        = "holesky"
-	SepoliaChainName        = "sepolia"
-	DevChainName            = "dev"
-	AmoyChainName           = "amoy"
-	BorMainnetChainName     = "bor-mainnet"
-	BorDevnetChainName      = "bor-devnet"
-	GnosisChainName         = "gnosis"
-	BorE2ETestChain2ValName = "bor-e2e-test-2Val"
-	ChiadoChainName         = "chiado"
-	BSCChainName            = "bsc"
-	ChapelChainName         = "chapel"
-	RialtoChainName         = "rialto"
-	DefaultChainName        = "default"
-	Test                    = "test"
+	Mainnet             = "mainnet"
+	Holesky             = "holesky"
+	Sepolia             = "sepolia"
+	Dev                 = "dev"
+	Amoy                = "amoy"
+	BorMainnet          = "bor-mainnet"
+	BorDevnet           = "bor-devnet"
+	Gnosis              = "gnosis"
+	BorE2ETestChain2Val = "bor-e2e-test-2Val"
+	Chiado              = "chiado"
+	BSC                 = "bsc"
+	Chapel              = "chapel"
+	Rialto              = "rialto"
+	Test                = "test"
 )
 
 var All = []string{
-	MainnetChainName,
-	HoleskyChainName,
-	SepoliaChainName,
-	AmoyChainName,
-	BorMainnetChainName,
-	BorDevnetChainName,
-	GnosisChainName,
-	ChiadoChainName,
-	BSCChainName,
-	ChapelChainName,
+	Mainnet,
+	Holesky,
+	Sepolia,
+	Amoy,
+	BorMainnet,
+	BorDevnet,
+	Gnosis,
+	Chiado,
+	BSC,
+	Chapel,
 	Test,
+}
+
+func IsKnownNetwork(s string) bool {
+	for _, n := range All {
+		if n == s {
+			return true
+		}
+	}
+	return false
 }

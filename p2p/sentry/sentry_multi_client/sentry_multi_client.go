@@ -484,12 +484,12 @@ func (cs *MultiClient) blockBodies66(ctx context.Context, inreq *proto_sentry.In
 	if err := rlp.DecodeBytes(inreq.Data, &request); err != nil {
 		return fmt.Errorf("decode BlockBodiesPacket66: %w", err)
 	}
-	txs, uncles, withdrawals, sidecars, requests := request.BlockRawBodiesPacket.Unpack()
-	if len(txs) == 0 && len(uncles) == 0 && len(withdrawals) == 0 && len(requests) == 0 {
+	txs, uncles, withdrawals, sidecars := request.BlockRawBodiesPacket.Unpack()
+	if len(txs) == 0 && len(uncles) == 0 && len(withdrawals) == 0 {
 		// No point processing empty response
 		return nil
 	}
-	cs.Bd.DeliverBodies(txs, uncles, withdrawals, requests, sidecars, uint64(len(inreq.Data)), sentry.ConvertH512ToPeerID(inreq.PeerId))
+	cs.Bd.DeliverBodies(txs, uncles, withdrawals, sidecars, uint64(len(inreq.Data)), sentry.ConvertH512ToPeerID(inreq.PeerId))
 	return nil
 }
 
@@ -590,26 +590,35 @@ func (cs *MultiClient) getReceipts66(ctx context.Context, inreq *proto_sentry.In
 	if !EnableP2PReceipts {
 		return nil
 	}
-
-	err := cs.getReceiptsActiveGoroutineNumber.Acquire(ctx, 1)
-	if err != nil {
-		return err
-	}
-	defer cs.getReceiptsActiveGoroutineNumber.Release(1)
 	var query eth.GetReceiptsPacket66
 	if err := rlp.DecodeBytes(inreq.Data, &query); err != nil {
 		return fmt.Errorf("decoding getReceipts66: %w, data: %x", err, inreq.Data)
 	}
-
-	tx, err := cs.db.BeginRo(ctx)
+	cachedReceipts, needMore, err := eth.AnswerGetReceiptsQueryCacheOnly(ctx, cs.ethApiWrapper, query.GetReceiptsPacket)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	receiptsList := []rlp.RawValue{}
+	if cachedReceipts != nil {
+		receiptsList = cachedReceipts.EncodedReceipts
+	}
+	if needMore {
+		err = cs.getReceiptsActiveGoroutineNumber.Acquire(ctx, 1)
+		if err != nil {
+			return err
+		}
+		defer cs.getReceiptsActiveGoroutineNumber.Release(1)
 
-	receiptsList, err := eth.AnswerGetReceiptsQuery(ctx, cs.ChainConfig, cs.ethApiWrapper, cs.blockReader, tx, query.GetReceiptsPacket)
-	if err != nil {
-		return err
+		tx, err := cs.db.BeginRo(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		receiptsList, err = eth.AnswerGetReceiptsQuery(ctx, cs.ChainConfig, cs.ethApiWrapper, cs.blockReader, tx, query.GetReceiptsPacket, cachedReceipts)
+		if err != nil {
+			return err
+		}
+
 	}
 	b, err := rlp.EncodeToBytes(&eth.ReceiptsRLPPacket66{
 		RequestId:         query.RequestId,

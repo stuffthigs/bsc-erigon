@@ -430,20 +430,19 @@ type BlockBodiesRLPPacket66 struct {
 	BlockBodiesRLPPacket
 }
 
-// Unpack retrieves the transactions, uncles, withdrawals, and requests from the range packet and returns
+// Unpack retrieves the transactions, uncles, withdrawals from the range packet and returns
 // them in a split flat format that's more consistent with the internal data structures.
-func (p *BlockRawBodiesPacket) Unpack() ([][][]byte, [][]*types.Header, []types.Withdrawals, []types.BlobSidecars, []types.Requests) {
+func (p *BlockRawBodiesPacket) Unpack() ([][][]byte, [][]*types.Header, []types.Withdrawals, []types.BlobSidecars) {
 	var (
 		txSet         = make([][][]byte, len(*p))
 		uncleSet      = make([][]*types.Header, len(*p))
 		withdrawalSet = make([]types.Withdrawals, len(*p))
 		sidecarsSet   = make([]types.BlobSidecars, len(*p))
-		requestSet    = make([]types.Requests, len(*p))
 	)
 	for i, body := range *p {
-		txSet[i], uncleSet[i], withdrawalSet[i], sidecarsSet[i], requestSet[i] = body.Transactions, body.Uncles, body.Withdrawals, body.Sidecars, body.Requests
+		txSet[i], uncleSet[i], withdrawalSet[i], sidecarsSet[i] = body.Transactions, body.Uncles, body.Withdrawals, body.Sidecars
 	}
-	return txSet, uncleSet, withdrawalSet, sidecarsSet, requestSet
+	return txSet, uncleSet, withdrawalSet, sidecarsSet
 }
 
 // GetReceiptsPacket represents a block receipts query.
