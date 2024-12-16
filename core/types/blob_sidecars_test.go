@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"encoding/hex"
+	"github.com/erigontech/erigon-lib/rlp"
 	"math/big"
 	"testing"
 
