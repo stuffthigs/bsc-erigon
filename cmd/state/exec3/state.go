@@ -18,6 +18,7 @@ package exec3
 
 import (
 	"context"
+	"fmt"
 	"github.com/erigontech/erigon/core/systemcontracts"
 	"sync"
 
@@ -136,6 +137,7 @@ func (rw *Worker) ResetTx(chainTx kv.Tx) {
 
 func (rw *Worker) Run() error {
 	for txTask, ok := rw.in.Next(rw.ctx); ok; txTask, ok = rw.in.Next(rw.ctx) {
+		//fmt.Println("RTX", txTask.BlockNum, txTask.TxIndex, txTask.TxNum, txTask.Final)
 		rw.RunTxTask(txTask, rw.isMining)
 		if err := rw.resultCh.Add(rw.ctx, txTask); err != nil {
 			return err
@@ -289,7 +291,13 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 			}
 			rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, core.NewEVMTxContext(msg), ibs, rw.vmCfg, rules)
 			// Increment the nonce for the next transaction
-			ibs.SetNonce(msg.From(), ibs.GetNonce(msg.From())+1)
+			nonce, err := ibs.GetNonce(msg.From())
+			if err != nil {
+				return nil, false, fmt.Errorf("%w: %w", core.ErrStateTransitionFailed, err)
+			}
+			if err = ibs.SetNonce(msg.From(), nonce+1); err != nil {
+				return nil, false, fmt.Errorf("%w: %w", core.ErrStateTransitionFailed, err)
+			}
 			ret, leftOverGas, err := rw.evm.Call(
 				vm.AccountRef(msg.From()),
 				*msg.To(),

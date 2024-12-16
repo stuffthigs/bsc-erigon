@@ -6,9 +6,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/erigontech/erigon-lib/common/math"
+	"github.com/erigontech/erigon-lib/common/u256"
+	"github.com/erigontech/erigon-lib/crypto"
+	"github.com/erigontech/erigon-lib/crypto/cryptopool"
+	"github.com/erigontech/erigon-lib/rlp"
 	"github.com/erigontech/erigon/consensus/parlia/finality"
 	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
+	"github.com/ethereum/go-ethereum/common"
 	"io"
 	"math/big"
 	"sort"
@@ -16,15 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/erigontech/erigon/crypto/cryptopool"
 	"github.com/erigontech/erigon/turbo/services"
 
 	"github.com/Giulio2002/bls"
 	"github.com/erigontech/erigon-lib/chain"
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/length"
-	"github.com/erigontech/erigon/common"
-	"github.com/erigontech/erigon/common/math"
 	lru "github.com/hashicorp/golang-lru/arc/v2"
 	"github.com/willf/bitset"
 
@@ -32,7 +35,6 @@ import (
 	"github.com/erigontech/erigon-lib/kv"
 	"github.com/erigontech/erigon-lib/log/v3"
 	"github.com/erigontech/erigon/accounts/abi"
-	"github.com/erigontech/erigon/common/u256"
 	"github.com/erigontech/erigon/consensus"
 	"github.com/erigontech/erigon/consensus/misc"
 	"github.com/erigontech/erigon/core"
@@ -41,9 +43,7 @@ import (
 	"github.com/erigontech/erigon/core/systemcontracts"
 	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/erigon/core/vm"
-	"github.com/erigontech/erigon/crypto"
 	"github.com/erigontech/erigon/params"
-	"github.com/erigontech/erigon/rlp"
 	"github.com/erigontech/erigon/rpc"
 	"github.com/holiman/uint256"
 )
@@ -1393,11 +1393,19 @@ func (p *Parlia) distributeToSystem(val libcommon.Address, ibs *state.IntraBlock
 	txs *types.Transactions, receipts *types.Receipts, systemTxs *types.Transactions,
 	usedGas *uint64, mining bool, systemTxCall consensus.SystemTxCall, curIndex, txIndex *int) (bool, error) {
 	if *curIndex == *txIndex {
-		balance := ibs.GetBalance(consensus.SystemAddress).Clone()
+		bal, err := ibs.GetBalance(consensus.SystemAddress)
+		if err != nil {
+			return false, err
+		}
+		balance := bal.Clone()
 		if balance.Cmp(u256.Num0) <= 0 {
 			return false, nil
 		}
-		doDistributeSysReward := ibs.GetBalance(systemcontracts.SystemRewardContract).Cmp(maxSystemBalance) < 0
+		systemReward, err := ibs.GetBalance(systemcontracts.SystemRewardContract)
+		if err != nil {
+			return false, err
+		}
+		doDistributeSysReward := systemReward.Cmp(maxSystemBalance) < 0
 		if doDistributeSysReward {
 			rewards := new(uint256.Int)
 			rewards = rewards.Rsh(balance, systemRewardPercent)
@@ -1421,8 +1429,11 @@ func (p *Parlia) distributeToValidator(val libcommon.Address, ibs *state.IntraBl
 	usedGas *uint64, mining bool, systemTxCall consensus.SystemTxCall, curIndex, txIndex *int) (bool, error) {
 
 	if *curIndex == *txIndex {
-		balance := ibs.GetBalance(consensus.SystemAddress).Clone()
-
+		bal, err := ibs.GetBalance(consensus.SystemAddress)
+		if err != nil {
+			return false, err
+		}
+		balance := bal.Clone()
 		if balance.Cmp(u256.Num0) <= 0 {
 			return false, nil
 		}

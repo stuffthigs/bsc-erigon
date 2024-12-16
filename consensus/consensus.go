@@ -31,11 +31,11 @@ import (
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/log/v3"
 
+	"github.com/erigontech/erigon-lib/rlp"
 	"github.com/erigontech/erigon/core/state"
 	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
-	"github.com/erigontech/erigon/rlp"
 	"github.com/erigontech/erigon/rpc"
 )
 
@@ -71,9 +71,6 @@ type ChainHeaderReader interface {
 	// Number of blocks frozen in the block snapshots
 	FrozenBlocks() uint64
 	FrozenBorBlocks() uint64
-
-	// Byte string representation of a bor span with given ID
-	BorSpan(spanId uint64) []byte
 }
 
 // ChainReader defines a small collection of methods needed to access the local
@@ -87,7 +84,7 @@ type ChainReader interface {
 	HasBlock(hash libcommon.Hash, number uint64) bool
 
 	BorEventsByBlock(hash libcommon.Hash, number uint64) []rlp.RawValue
-	BorStartEventID(hash libcommon.Hash, number uint64) uint64
+	BorStartEventId(hash libcommon.Hash, number uint64) uint64
 }
 
 type SystemCall func(contract libcommon.Address, data []byte) ([]byte, error)
@@ -236,9 +233,12 @@ type AsyncEngine interface {
 }
 
 // Transfer subtracts amount from sender and adds amount to recipient using the given Db
-func Transfer(db evmtypes.IntraBlockState, sender, recipient libcommon.Address, amount *uint256.Int, bailout bool) {
+func Transfer(db evmtypes.IntraBlockState, sender, recipient libcommon.Address, amount *uint256.Int, bailout bool) error {
 	if !bailout {
-		db.SubBalance(sender, amount, tracing.BalanceChangeTransfer)
+		err := db.SubBalance(sender, amount, tracing.BalanceChangeTransfer)
+		if err != nil {
+			return err
+		}
 	}
-	db.AddBalance(recipient, amount, tracing.BalanceChangeTransfer)
+	return db.AddBalance(recipient, amount, tracing.BalanceChangeTransfer)
 }

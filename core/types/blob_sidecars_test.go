@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
-	"github.com/erigontech/erigon/rlp"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -25,17 +25,19 @@ import (
 	"github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/hexutil"
 	"github.com/erigontech/erigon-lib/common/hexutility"
+	"github.com/erigontech/erigon-lib/common/math"
+	"github.com/erigontech/erigon-lib/crypto/cryptopool"
 	"github.com/erigontech/erigon-lib/kv"
 	"github.com/erigontech/erigon-lib/kv/rawdbv3"
 	"github.com/erigontech/erigon-lib/log/v3"
+
+	"github.com/erigontech/erigon-lib/rlp"
 	"github.com/erigontech/erigon/cl/clparams"
-	"github.com/erigontech/erigon/common/math"
 	"github.com/erigontech/erigon/core"
 	"github.com/erigontech/erigon/core/rawdb"
 	"github.com/erigontech/erigon/core/state"
 	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/erigon/core/vm"
-	"github.com/erigontech/erigon/crypto/cryptopool"
 	"github.com/erigontech/erigon/polygon/bor/borcfg"
 	bortypes "github.com/erigontech/erigon/polygon/bor/types"
 	"github.com/erigontech/erigon/rpc"
@@ -229,6 +231,16 @@ func (api *APIImpl) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber
 	}
 	additionalFields := make(map[string]interface{})
 
+	// =============================
+	// TODO - remove this after https://github.com/ethereum/execution-apis/pull/570 is implemented by Hive and rest of the community
+	td, err := rawdb.ReadTd(tx, b.Hash(), b.NumberU64())
+	if err != nil {
+		return nil, err
+	}
+	if td != nil {
+		additionalFields["totalDifficulty"] = (*hexutil.Big)(td)
+	}
+	// =================================
 	chainConfig, err := api.chainConfig(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -282,6 +294,17 @@ func (api *APIImpl) GetBlockByHash(ctx context.Context, numberOrHash rpc.BlockNu
 	}
 	number := block.NumberU64()
 
+	// =============================
+	// TODO - remove this after https://github.com/ethereum/execution-apis/pull/570 is implemented by Hive and rest of the community
+	td, err := rawdb.ReadTd(tx, hash, number)
+	if err != nil {
+		return nil, err
+	}
+	if td != nil {
+		additionalFields["totalDifficulty"] = (*hexutil.Big)(td)
+	}
+	// ==============================
+
 	chainConfig, err := api.chainConfig(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -309,6 +332,42 @@ func (api *APIImpl) GetBlockByHash(ctx context.Context, numberOrHash rpc.BlockNu
 		}
 	}
 	return response, err
+}
+
+func (api *APIImpl) GetBadBlocks(ctx context.Context) ([]map[string]interface{}, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	blocks, err := rawdb.GetLatestBadBlocks(tx)
+	if err != nil || len(blocks) == 0 {
+		return nil, err
+	}
+
+	results := make([]map[string]interface{}, 0, len(blocks))
+	for _, block := range blocks {
+		var blockRlp string
+		if rlpBytes, err := rlp.EncodeToBytes(block); err != nil {
+			blockRlp = err.Error() // hack
+		} else {
+			blockRlp = fmt.Sprintf("%#x", rlpBytes)
+		}
+
+		blockJson, err := ethapi.RPCMarshalBlock(block, true, true, nil)
+		if err != nil {
+			log.Error("Failed to marshal block", "err", err)
+			blockJson = map[string]interface{}{}
+		}
+		results = append(results, map[string]interface{}{
+			"hash":  block.Hash(),
+			"block": blockRlp,
+			"rlp":   blockJson,
+		})
+	}
+
+	return results, nil
 }
 
 // GetBlockTransactionCountByNumber implements eth_getBlockTransactionCountByNumber. Returns the number of transactions in a block given the block's block number.
@@ -363,7 +422,7 @@ func (api *APIImpl) GetBlockTransactionCountByNumber(ctx context.Context, blockN
 		var ok bool
 		var err error
 
-		if api.bridgeReader != nil {
+		if api.useBridgeReader {
 			_, ok, err = api.bridgeReader.EventTxnLookup(ctx, borStateSyncTxHash)
 		} else {
 			_, ok, err = api._blockReader.EventLookup(ctx, tx, borStateSyncTxHash)
@@ -413,7 +472,7 @@ func (api *APIImpl) GetBlockTransactionCountByHash(ctx context.Context, blockHas
 		var ok bool
 		var err error
 
-		if api.bridgeReader != nil {
+		if api.useBridgeReader {
 			_, ok, err = api.bridgeReader.EventTxnLookup(ctx, borStateSyncTxHash)
 		} else {
 			_, ok, err = api._blockReader.EventLookup(ctx, tx, borStateSyncTxHash)
