@@ -14,7 +14,6 @@ import (
 	"github.com/erigontech/erigon/consensus/parlia/finality"
 	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
-	"github.com/ethereum/go-ethereum/common"
 	"io"
 	"math/big"
 	"sort"
@@ -653,7 +652,7 @@ func (p *Parlia) verifyCascadingFields(chain consensus.ChainHeaderReader, header
 	// Verify vote attestation for fast finality.
 	if err := p.verifyVoteAttestation(chain, header, parents); err != nil {
 		p.logger.Warn("Verify vote attestation failed", "error", err, "hash", header.Hash(), "number", header.Number,
-			"parent", header.ParentHash, "coinbase", header.Coinbase, "extra", common.Bytes2Hex(header.Extra))
+			"parent", header.ParentHash, "coinbase", header.Coinbase, "extra", libcommon.Bytes2Hex(header.Extra))
 		if chain.Config().IsPlato(header.Number.Uint64()) {
 			return err
 		}
