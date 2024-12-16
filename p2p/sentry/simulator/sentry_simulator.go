@@ -120,7 +120,7 @@ func NewSentry(ctx context.Context, chain string, snapshotLocation string, peerC
 		messageReceivers: map[isentry.MessageId][]isentry.Sentry_MessagesServer{},
 		knownSnapshots:   knownSnapshots,
 		activeSnapshots:  activeSnapshots,
-		blockReader:      freezeblocks.NewBlockReader(activeSnapshots, nil, nil, nil),
+		blockReader:      freezeblocks.NewBlockReader(activeSnapshots, nil, nil, nil, nil),
 		logger:           logger,
 		downloader:       downloader,
 		chain:            chain,
