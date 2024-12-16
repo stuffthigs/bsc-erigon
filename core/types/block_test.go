@@ -674,7 +674,7 @@ func TestCanEncodeAndDecodeRawBody4844(t *testing.T) {
 	writer.WriteString(hexutility.Encode(rlpBytes))
 
 	var rawBody RawBody
-	fromHex := libcommon.CopyBytes(common.FromHex(writer.String()))
+	fromHex := libcommon.CopyBytes(libcommon.FromHex(writer.String()))
 	bodyReader := bytes.NewReader(fromHex)
 	stream := rlp.NewStream(bodyReader, 0)
 
