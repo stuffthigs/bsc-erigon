@@ -1409,8 +1409,8 @@ func (p *Parlia) distributeToSystem(val libcommon.Address, ibs *state.IntraBlock
 			rewards := new(uint256.Int)
 			rewards = rewards.Rsh(balance, systemRewardPercent)
 
-			ibs.SetBalance(consensus.SystemAddress, balance.Sub(balance, rewards), tracing.BalanceDecreaseGasBuy)
-			ibs.AddBalance(val, rewards, tracing.BalanceDecreaseGasBuy)
+			ibs.SetBalance(consensus.SystemAddress, balance.Sub(balance, rewards), tracing.BalanceChangeUnspecified)
+			ibs.AddBalance(val, rewards, tracing.BalanceChangeUnspecified)
 			if rewards.Cmp(u256.Num0) > 0 {
 				return p.applyTransaction(val, systemcontracts.SystemRewardContract, rewards, nil, ibs, header,
 					txs, receipts, systemTxs, usedGas, mining, systemTxCall, curIndex)
@@ -1436,8 +1436,8 @@ func (p *Parlia) distributeToValidator(val libcommon.Address, ibs *state.IntraBl
 		if balance.Cmp(u256.Num0) <= 0 {
 			return false, nil
 		}
-		ibs.SetBalance(consensus.SystemAddress, u256.Num0, tracing.BalanceDecreaseGasBuy)
-		ibs.AddBalance(val, balance, tracing.BalanceDecreaseGasBuy)
+		ibs.SetBalance(consensus.SystemAddress, u256.Num0, tracing.BalanceChangeUnspecified)
+		ibs.AddBalance(val, balance, tracing.BalanceChangeUnspecified)
 		// method
 		method := "deposit"
 
