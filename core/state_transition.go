@@ -548,11 +548,10 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*evmtype
 	}
 	amount := new(uint256.Int).SetUint64(st.gasUsed())
 	amount.Mul(amount, effectiveTip) // gasUsed * effectiveTip = how much goes to the block producer (miner, validator)
-	if err := st.state.AddBalance(coinbase, amount, tracing.BalanceIncreaseRewardTransactionFee); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrStateTransitionFailed, err)
-	}
 	if st.evm.ChainConfig().Parlia != nil {
-		st.state.AddBalance(consensus.SystemAddress, amount, tracing.BalanceIncreaseRewardTransactionFee)
+		if err := st.state.AddBalance(consensus.SystemAddress, amount, tracing.BalanceIncreaseRewardTransactionFee); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrStateTransitionFailed, err)
+		}
 		// add extra blob fee reward
 		if rules.IsCancun {
 			blobGasVal, overflow := new(uint256.Int).MulOverflow(st.evm.Context.BlobBaseFee, new(uint256.Int).SetUint64(st.msg.BlobGas()))
@@ -562,7 +561,9 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*evmtype
 			st.state.AddBalance(consensus.SystemAddress, blobGasVal, tracing.BalanceIncreaseRewardTransactionFee)
 		}
 	} else {
-		st.state.AddBalance(coinbase, amount, tracing.BalanceIncreaseRewardTransactionFee)
+		if err := st.state.AddBalance(coinbase, amount, tracing.BalanceIncreaseRewardTransactionFee); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrStateTransitionFailed, err)
+		}
 	}
 	if !msg.IsFree() && rules.IsLondon {
 		burntContractAddress := st.evm.ChainConfig().GetBurntContract(st.evm.Context.BlockNumber)
