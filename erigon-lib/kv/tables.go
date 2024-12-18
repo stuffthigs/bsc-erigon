@@ -501,6 +501,7 @@ var ConsensusTables = append([]string{
 },
 	ChaindataTables..., //TODO: move bor tables from chaintables to `ConsensusTables`
 )
+
 var HeimdallTables = []string{}
 var PolygonBridgeTables = []string{}
 var DownloaderTables = []string{
@@ -631,7 +632,7 @@ var ReconTablesCfg = TableCfg{
 
 func TablesCfgByLabel(label Label) TableCfg {
 	switch label {
-	case ChainDB, TemporaryDB, CaplinDB: //TODO: move caplindb tables to own table config
+	case ChainDB, TemporaryDB, CaplinDB, BlobDb: //TODO: move caplindb tables to own table config
 		return ChaindataTablesCfg
 	case TxPoolDB:
 		return TxpoolTablesCfg
