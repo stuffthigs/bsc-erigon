@@ -25,13 +25,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/erigontech/erigon-lib/log/v3"
+	"github.com/erigontech/erigon-lib/rlp"
 	"math/big"
 
 	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/secp256k1"
 
 	"github.com/Giulio2002/bls"
-	"github.com/erigontech/erigon/rlp"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
@@ -41,15 +41,12 @@ import (
 
 	"github.com/erigontech/erigon-lib/chain"
 	libcommon "github.com/erigontech/erigon-lib/common"
-	libcrypto "github.com/erigontech/erigon-lib/crypto"
+	"github.com/erigontech/erigon-lib/common/math"
+	"github.com/erigontech/erigon-lib/crypto"
 	"github.com/erigontech/erigon-lib/crypto/blake2b"
+	"github.com/erigontech/erigon-lib/crypto/bn256"
 	libkzg "github.com/erigontech/erigon-lib/crypto/kzg"
-
-	"github.com/erigontech/erigon/common"
-	"github.com/erigontech/erigon/common/math"
-	"github.com/erigontech/erigon/crypto"
-	"github.com/erigontech/erigon/crypto/bn256"
-	"github.com/erigontech/erigon/crypto/secp256r1"
+	"github.com/erigontech/erigon-lib/crypto/secp256r1"
 	"github.com/erigontech/erigon/params"
 
 	//lint:ignore SA1019 Needed for precompile
@@ -483,7 +480,7 @@ func (c *ecrecover) RequiredGas(input []byte) uint64 {
 func (c *ecrecover) Run(input []byte) ([]byte, error) {
 	const ecRecoverInputLength = 128
 
-	input = common.RightPadBytes(input, ecRecoverInputLength)
+	input = libcommon.RightPadBytes(input, ecRecoverInputLength)
 	// "input" is (hash, v, r, s), each 32 bytes
 	// but for ecrecover we want (r, s, v)
 
@@ -492,7 +489,7 @@ func (c *ecrecover) Run(input []byte) ([]byte, error) {
 	v := input[63] - 27
 
 	// tighter sig s values input homestead only apply to txn sigs
-	if !allZero(input[32:63]) || !libcrypto.TransactionSignatureIsValid(v, r, s, true /* allowPreEip2s */) {
+	if !allZero(input[32:63]) || !crypto.TransactionSignatureIsValid(v, r, s, true /* allowPreEip2s */) {
 		return nil, nil
 	}
 	// We must make sure not to modify the 'input', so placing the 'v' along with
@@ -508,7 +505,7 @@ func (c *ecrecover) Run(input []byte) ([]byte, error) {
 	}
 
 	// the first byte of pubkey is bitcoin heritage
-	return common.LeftPadBytes(crypto.Keccak256(pubKey[1:])[12:], 32), nil
+	return libcommon.LeftPadBytes(crypto.Keccak256(pubKey[1:])[12:], 32), nil
 }
 
 // SHA256 implemented as a native contract.
@@ -539,7 +536,7 @@ func (c *ripemd160hash) RequiredGas(input []byte) uint64 {
 func (c *ripemd160hash) Run(input []byte) ([]byte, error) {
 	ripemd := ripemd160.New()
 	ripemd.Write(input)
-	return common.LeftPadBytes(ripemd.Sum(nil), 32), nil
+	return libcommon.LeftPadBytes(ripemd.Sum(nil), 32), nil
 }
 
 // data copy implemented as a native contract.
@@ -704,7 +701,7 @@ func (c *bigModExp) Run(input []byte) ([]byte, error) {
 	switch {
 	case mod.BitLen() == 0:
 		// Modulo 0 is undefined, return zero
-		return common.LeftPadBytes([]byte{}, int(modLen)), nil
+		return libcommon.LeftPadBytes([]byte{}, int(modLen)), nil
 	case base.Cmp(libcommon.Big1) == 0:
 		//If base == 1, then we can just return base % mod (if mod >= 1, which it is)
 		v = base.Mod(base, mod).Bytes()
@@ -715,7 +712,7 @@ func (c *bigModExp) Run(input []byte) ([]byte, error) {
 		// Modulo is odd
 		v = base.Exp(base, exp, mod).Bytes()
 	}
-	return common.LeftPadBytes(v, int(modLen)), nil
+	return libcommon.LeftPadBytes(v, int(modLen)), nil
 }
 
 // newCurvePoint unmarshals a binary blob into a bn256 elliptic curve point,
@@ -1635,7 +1632,7 @@ func (c *p256Verify) Run(input []byte) ([]byte, error) {
 	// Verify the secp256r1 signature
 	if secp256r1.Verify(hash, r, s, x, y) {
 		// Signature is valid
-		return common.LeftPadBytes(big1.Bytes(), 32), nil
+		return libcommon.LeftPadBytes(big1.Bytes(), 32), nil
 	} else {
 		// Signature is invalid
 		return nil, nil

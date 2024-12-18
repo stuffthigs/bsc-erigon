@@ -31,33 +31,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erigontech/erigon-lib/chain/networkid"
-
 	"github.com/c2h5oh/datasize"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/urfave/cli/v2"
 
-	"github.com/erigontech/erigon-lib/log/v3"
-
+	"github.com/erigontech/erigon-lib/chain/networkid"
 	"github.com/erigontech/erigon-lib/chain/networkname"
 	"github.com/erigontech/erigon-lib/chain/snapcfg"
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/datadir"
 	"github.com/erigontech/erigon-lib/common/metrics"
+	"github.com/erigontech/erigon-lib/common/paths"
+	"github.com/erigontech/erigon-lib/crypto"
 	libkzg "github.com/erigontech/erigon-lib/crypto/kzg"
 	"github.com/erigontech/erigon-lib/direct"
 	downloadercfg2 "github.com/erigontech/erigon-lib/downloader/downloadercfg"
-	"github.com/erigontech/erigon-lib/txpool/txpoolcfg"
-
+	"github.com/erigontech/erigon-lib/log/v3"
 	"github.com/erigontech/erigon/cl/clparams"
 	"github.com/erigontech/erigon/cmd/downloader/downloadernat"
 	"github.com/erigontech/erigon/cmd/utils/flags"
-	common2 "github.com/erigontech/erigon/common"
-	"github.com/erigontech/erigon/common/paths"
 	"github.com/erigontech/erigon/consensus/ethash/ethashcfg"
 	"github.com/erigontech/erigon/core"
-	"github.com/erigontech/erigon/crypto"
 	"github.com/erigontech/erigon/eth/ethconfig"
 	"github.com/erigontech/erigon/eth/gasprice/gaspricecfg"
 	"github.com/erigontech/erigon/node/nodecfg"
@@ -66,9 +61,10 @@ import (
 	"github.com/erigontech/erigon/p2p/nat"
 	"github.com/erigontech/erigon/p2p/netutil"
 	"github.com/erigontech/erigon/params"
-	borsnaptype "github.com/erigontech/erigon/polygon/bor/snaptype"
+	"github.com/erigontech/erigon/polygon/heimdall"
 	"github.com/erigontech/erigon/rpc/rpccfg"
 	"github.com/erigontech/erigon/turbo/logging"
+	"github.com/erigontech/erigon/txnprovider/txpool/txpoolcfg"
 )
 
 // These are all the command line flags we support.
@@ -847,13 +843,33 @@ var (
 		Usage: "TCP Port for Caplin DISCV5 protocol",
 		Value: 4001,
 	}
+	CaplinEnableUPNPlag = cli.BoolFlag{
+		Name:  "caplin.enable-upnp",
+		Usage: "Enable NAT porting for Caplin",
+		Value: false,
+	}
+	CaplinMaxInboundTrafficPerPeerFlag = cli.StringFlag{
+		Name:  "caplin.max-inbound-traffic-per-peer",
+		Usage: "Max inbound traffic per second per peer",
+		Value: "256KB",
+	}
+	CaplinMaxOutboundTrafficPerPeerFlag = cli.StringFlag{
+		Name:  "caplin.max-outbound-traffic-per-peer",
+		Usage: "Max outbound traffic per second per peer",
+		Value: "256KB",
+	}
+	CaplinAdaptableTrafficRequirementsFlag = cli.BoolFlag{
+		Name:  "caplin.adaptable-maximum-traffic-requirements",
+		Usage: "Make the node adaptable to the maximum traffic requirement based on how many validators are being ran",
+		Value: true,
+	}
 	CaplinCheckpointSyncUrlFlag = cli.StringSliceFlag{
 		Name:  "caplin.checkpoint-sync-url",
 		Usage: "checkpoint sync endpoint",
 		Value: cli.NewStringSlice(),
 	}
 	CaplinSubscribeAllTopicsFlag = cli.BoolFlag{
-		Name:  "caplin.subscibe-all-topics",
+		Name:  "caplin.subscribe-all-topics",
 		Usage: "Subscribe to all gossip topics",
 		Value: false,
 	}
@@ -870,7 +886,7 @@ var (
 	CaplinMaxPeerCount = cli.Uint64Flag{
 		Name:  "caplin.max-peer-count",
 		Usage: "Max number of peers to connect",
-		Value: 128,
+		Value: 80,
 	}
 
 	SentinelAddrFlag = cli.StringFlag{
@@ -1077,6 +1093,12 @@ var (
 		Usage: "Enable speed test",
 		Value: false,
 	}
+
+	ChaosMonkeyFlag = cli.BoolFlag{
+		Name:  "chaos.monkey",
+		Usage: "Enable 'chaos monkey' to generate spontaneous network/consensus/etc failures. Use ONLY for testing",
+		Value: false,
+	}
 )
 
 var MetricFlags = []cli.Flag{&MetricsEnabledFlag, &MetricsHTTPFlag, &MetricsPortFlag, &DiagDisabledFlag, &DiagEndpointAddrFlag, &DiagEndpointPortFlag, &DiagSpeedTestFlag}
@@ -1216,8 +1238,6 @@ func NewP2PConfig(
 ) (*p2p.Config, error) {
 	var enodeDBPath string
 	switch protocol {
-	case direct.ETH66:
-		enodeDBPath = filepath.Join(dirs.Nodes, "eth66")
 	case direct.ETH67:
 		enodeDBPath = filepath.Join(dirs.Nodes, "eth67")
 	case direct.ETH68:
@@ -1576,7 +1596,7 @@ func setTxPool(ctx *cli.Context, fullCfg *ethconfig.Config) {
 	if ctx.IsSet(DbWriteMapFlag.Name) {
 		fullCfg.TxPool.MdbxWriteMap = ctx.Bool(DbWriteMapFlag.Name)
 	}
-	cfg.CommitEvery = common2.RandomizeDuration(ctx.Duration(TxPoolCommitEveryFlag.Name))
+	cfg.CommitEvery = libcommon.RandomizeDuration(ctx.Duration(TxPoolCommitEveryFlag.Name))
 }
 
 func setEthash(ctx *cli.Context, datadir string, cfg *ethconfig.Config) {
@@ -1670,9 +1690,10 @@ func setBorConfig(ctx *cli.Context, cfg *ethconfig.Config) {
 	cfg.WithoutHeimdall = ctx.Bool(WithoutHeimdallFlag.Name)
 	cfg.WithHeimdallMilestones = ctx.Bool(WithHeimdallMilestones.Name)
 	cfg.WithHeimdallWaypointRecording = ctx.Bool(WithHeimdallWaypoints.Name)
-	borsnaptype.RecordWayPoints(cfg.WithHeimdallWaypointRecording)
 	cfg.PolygonSync = ctx.Bool(PolygonSyncFlag.Name)
 	cfg.PolygonSyncStage = ctx.Bool(PolygonSyncStageFlag.Name)
+	heimdall.RecordWayPoints(
+		cfg.WithHeimdallWaypointRecording || cfg.PolygonSync || cfg.PolygonSyncStage)
 }
 
 func setMiner(ctx *cli.Context, cfg *params.MiningConfig) {
@@ -1821,6 +1842,18 @@ func SetEthConfig(ctx *cli.Context, nodeConfig *nodecfg.Config, cfg *ethconfig.C
 	cfg.CaplinConfig.CaplinDiscoveryAddr = ctx.String(CaplinDiscoveryAddrFlag.Name)
 	cfg.CaplinConfig.CaplinDiscoveryPort = ctx.Uint64(CaplinDiscoveryPortFlag.Name)
 	cfg.CaplinConfig.CaplinDiscoveryTCPPort = ctx.Uint64(CaplinDiscoveryTCPPortFlag.Name)
+	cfg.CaplinConfig.EnableUPnP = ctx.Bool(CaplinEnableUPNPlag.Name)
+	var err error
+	cfg.CaplinConfig.MaxInboundTrafficPerPeer, err = datasize.ParseString(ctx.String(CaplinMaxInboundTrafficPerPeerFlag.Name))
+	if err != nil {
+		Fatalf("Option %s: %v", CaplinMaxInboundTrafficPerPeerFlag.Name, err)
+	}
+	cfg.CaplinConfig.MaxOutboundTrafficPerPeer, err = datasize.ParseString(ctx.String(CaplinMaxOutboundTrafficPerPeerFlag.Name))
+	if err != nil {
+		Fatalf("Option %s: %v", CaplinMaxOutboundTrafficPerPeerFlag.Name, err)
+	}
+	cfg.CaplinConfig.AdptableTrafficRequirements = ctx.Bool(CaplinAdaptableTrafficRequirementsFlag.Name)
+
 	cfg.CaplinConfig.SubscribeAllTopics = ctx.Bool(CaplinSubscribeAllTopicsFlag.Name)
 	cfg.CaplinConfig.MaxPeerCount = ctx.Uint64(CaplinMaxPeerCount.Name)
 
@@ -1851,6 +1884,7 @@ func SetEthConfig(ctx *cli.Context, nodeConfig *nodecfg.Config, cfg *ethconfig.C
 	cfg.Snapshot.NoDownloader = ctx.Bool(NoDownloaderFlag.Name)
 	cfg.Snapshot.Verify = ctx.Bool(DownloaderVerifyFlag.Name)
 	cfg.Snapshot.DownloaderAddr = strings.TrimSpace(ctx.String(DownloaderAddrFlag.Name))
+	cfg.Snapshot.ChainName = chain
 	if cfg.Snapshot.DownloaderAddr == "" {
 		downloadRateStr := ctx.String(TorrentDownloadRateFlag.Name)
 		uploadRateStr := ctx.String(TorrentUploadRateFlag.Name)

@@ -226,7 +226,13 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			}
 			rw.evm.ResetBetweenBlocks(txTask.EvmBlockContext, txContext, ibs, *rw.vmConfig, rules)
 			// Increment the nonce for the next transaction
-			ibs.SetNonce(msg.From(), ibs.GetNonce(msg.From())+1)
+			nonce, err := ibs.GetNonce(msg.From())
+			if err != nil {
+				return nil, false, fmt.Errorf("%w: %w", core.ErrStateTransitionFailed, err)
+			}
+			if err = ibs.SetNonce(msg.From(), nonce+1); err != nil {
+				return nil, false, fmt.Errorf("%w: %w", core.ErrStateTransitionFailed, err)
+			}
 			ret, leftOverGas, err := rw.evm.Call(
 				vm.AccountRef(msg.From()),
 				*msg.To(),

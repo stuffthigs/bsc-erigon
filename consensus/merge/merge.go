@@ -187,8 +187,8 @@ func (s *Merge) Finalize(config *chain.Config, header *types.Header, state *stat
 
 	var rs types.FlatRequests
 	if config.IsPrague(header.Time) {
-		rs = make(types.FlatRequests, 0)
-		allLogs := types.Logs{}
+		rs = make(types.FlatRequests, len(types.KnownRequestTypes))
+		allLogs := make(types.Logs, 0)
 		for _, rec := range receipts {
 			allLogs = append(allLogs, rec.Logs...)
 		}
@@ -196,11 +196,11 @@ func (s *Merge) Finalize(config *chain.Config, header *types.Header, state *stat
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("error: could not parse requests logs: %v", err)
 		}
-		rs = append(rs, *depositReqs)
+		rs[0] = *depositReqs
 		withdrawalReq := misc.DequeueWithdrawalRequests7002(syscall)
-		rs = append(rs, *withdrawalReq)
+		rs[1] = *withdrawalReq
 		consolidations := misc.DequeueConsolidationRequests7251(syscall)
-		rs = append(rs, *consolidations)
+		rs[2] = *consolidations
 		if header.RequestsHash != nil {
 			rh := rs.Hash()
 			if *header.RequestsHash != *rh {
@@ -321,6 +321,7 @@ func (s *Merge) verifyHeader(chain consensus.ChainHeaderReader, header, parent *
 func (s *Merge) Seal(chain consensus.ChainHeaderReader, blockWithReceipts *types.BlockWithReceipts, results chan<- *types.BlockWithReceipts, stop <-chan struct{}) error {
 	block := blockWithReceipts.Block
 	receipts := blockWithReceipts.Receipts
+	requests := blockWithReceipts.Requests
 	if !misc.IsPoSHeader(block.HeaderNoCopy()) {
 		return s.eth1Engine.Seal(chain, blockWithReceipts, results, stop)
 	}
@@ -329,7 +330,7 @@ func (s *Merge) Seal(chain consensus.ChainHeaderReader, blockWithReceipts *types
 	header.Nonce = ProofOfStakeNonce
 
 	select {
-	case results <- &types.BlockWithReceipts{Block: block.WithSeal(header), Receipts: receipts}:
+	case results <- &types.BlockWithReceipts{Block: block.WithSeal(header), Receipts: receipts, Requests: requests}:
 	default:
 		log.Warn("Sealing result is not read", "sealhash", block.Hash())
 	}

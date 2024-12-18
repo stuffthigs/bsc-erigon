@@ -185,6 +185,10 @@ var DefaultFlags = []cli.Flag{
 	&utils.CaplinCheckpointSyncUrlFlag,
 	&utils.CaplinSubscribeAllTopicsFlag,
 	&utils.CaplinMaxPeerCount,
+	&utils.CaplinEnableUPNPlag,
+	&utils.CaplinMaxInboundTrafficPerPeerFlag,
+	&utils.CaplinMaxOutboundTrafficPerPeerFlag,
+	&utils.CaplinAdaptableTrafficRequirementsFlag,
 	&utils.SentinelAddrFlag,
 	&utils.SentinelPortFlag,
 	&utils.SentinelBootnodes,
@@ -233,4 +237,6 @@ var DefaultFlags = []cli.Flag{
 	&SyncLoopBlockLimitFlag,
 	&SyncLoopBreakAfterFlag,
 	&SyncParallelStateFlushing,
+
+	&utils.ChaosMonkeyFlag,
 }

@@ -23,35 +23,34 @@ import (
 	"testing"
 	"time"
 
-	"github.com/erigontech/erigon-lib/common/hexutil"
-
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
+	"github.com/erigontech/erigon-lib/common/hexutil"
 	"github.com/erigontech/erigon-lib/common/hexutility"
+	"github.com/erigontech/erigon-lib/common/math"
+	"github.com/erigontech/erigon-lib/crypto"
 	txpool "github.com/erigontech/erigon-lib/gointerfaces/txpoolproto"
 	"github.com/erigontech/erigon-lib/kv"
 	"github.com/erigontech/erigon-lib/kv/kvcache"
 	"github.com/erigontech/erigon-lib/kv/rawdbv3"
-
 	"github.com/erigontech/erigon-lib/log/v3"
+	"github.com/erigontech/erigon/turbo/testlog"
 
+	"github.com/erigontech/erigon-lib/trie"
 	"github.com/erigontech/erigon/cmd/rpcdaemon/rpcdaemontest"
-	"github.com/erigontech/erigon/common/math"
 	"github.com/erigontech/erigon/core"
 	"github.com/erigontech/erigon/core/rawdb"
 	"github.com/erigontech/erigon/core/state"
 	"github.com/erigontech/erigon/core/types"
-	"github.com/erigontech/erigon/crypto"
 	"github.com/erigontech/erigon/params"
 	"github.com/erigontech/erigon/rpc"
 	"github.com/erigontech/erigon/rpc/rpccfg"
 	"github.com/erigontech/erigon/turbo/adapter/ethapi"
 	"github.com/erigontech/erigon/turbo/rpchelper"
 	"github.com/erigontech/erigon/turbo/stages/mock"
-	"github.com/erigontech/erigon/turbo/trie"
 )
 
 func TestEstimateGas(t *testing.T) {
@@ -554,34 +553,39 @@ func chainWithDeployedContract(t *testing.T) (*mock.MockSentry, libcommon.Addres
 	assert.NoError(t, err)
 	st := state.New(stateReader)
 	assert.NoError(t, err)
-	assert.False(t, st.Exist(contractAddr), "Contract should not exist at block #1")
+	exist, err := st.Exist(contractAddr)
+	assert.NoError(t, err)
+	assert.False(t, exist, "Contract should not exist at block #1")
 
 	stateReader, err = rpchelper.CreateHistoryStateReader(tx, rawdbv3.TxNums, 2, 0, "")
 	assert.NoError(t, err)
 	st = state.New(stateReader)
 	assert.NoError(t, err)
-	assert.True(t, st.Exist(contractAddr), "Contract should exist at block #2")
+	exist, err = st.Exist(contractAddr)
+	assert.NoError(t, err)
+	assert.True(t, exist, "Contract should exist at block #2")
 
 	return m, bankAddress, contractAddr
 }
 
 func doPrune(t *testing.T, db kv.RwDB, pruneTo uint64) {
 	ctx := context.Background()
+	logger := testlog.Logger(t, log.LvlCrit)
 	tx, err := db.BeginRw(ctx)
 	assert.NoError(t, err)
 
 	logEvery := time.NewTicker(20 * time.Second)
 
-	err = rawdb.PruneTableDupSort(tx, kv.AccountChangeSet, "", pruneTo, logEvery, ctx)
+	err = rawdb.PruneTableDupSort(tx, kv.TblAccountVals, "", pruneTo, logEvery, ctx)
 	assert.NoError(t, err)
 
-	err = rawdb.PruneTableDupSort(tx, kv.StorageChangeSet, "", pruneTo, logEvery, ctx)
+	err = rawdb.PruneTableDupSort(tx, kv.StorageChangeSetDeprecated, "", pruneTo, logEvery, ctx)
 	assert.NoError(t, err)
 
-	err = rawdb.PruneTable(tx, kv.Receipts, pruneTo, ctx, math.MaxInt32)
+	err = rawdb.PruneTable(tx, kv.Receipts, pruneTo, ctx, math.MaxInt32, time.Hour, logger, "")
 	assert.NoError(t, err)
 
-	err = rawdb.PruneTable(tx, kv.Log, pruneTo, ctx, math.MaxInt32)
+	err = rawdb.PruneTable(tx, kv.Log, pruneTo, ctx, math.MaxInt32, time.Hour, logger, "")
 	assert.NoError(t, err)
 
 	err = rawdb.PruneTableDupSort(tx, kv.CallTraceSet, "", pruneTo, logEvery, ctx)

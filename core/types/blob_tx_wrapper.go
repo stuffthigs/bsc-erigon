@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/erigontech/erigon-lib/common/hexutility"
-	rlp2 "github.com/erigontech/erigon-lib/rlp"
+	rlp2 "github.com/erigontech/erigon-lib/rlp2"
 	"io"
 	"math/big"
 	"math/bits"
@@ -33,9 +33,7 @@ import (
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/fixedgas"
 	libkzg "github.com/erigontech/erigon-lib/crypto/kzg"
-	types2 "github.com/erigontech/erigon-lib/types"
-
-	"github.com/erigontech/erigon/rlp"
+	"github.com/erigontech/erigon-lib/rlp"
 )
 
 const (
@@ -474,7 +472,7 @@ func (txw *BlobTxWrapper) SigningHash(chainID *big.Int) libcommon.Hash {
 
 func (txw *BlobTxWrapper) GetData() []byte { return txw.Tx.GetData() }
 
-func (txw *BlobTxWrapper) GetAccessList() types2.AccessList { return txw.Tx.GetAccessList() }
+func (txw *BlobTxWrapper) GetAccessList() AccessList { return txw.Tx.GetAccessList() }
 
 func (txw *BlobTxWrapper) Protected() bool { return txw.Tx.Protected() }
 

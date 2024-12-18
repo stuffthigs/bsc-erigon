@@ -46,6 +46,7 @@ import (
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/datadir"
 	"github.com/erigontech/erigon-lib/common/hexutility"
+	"github.com/erigontech/erigon-lib/common/paths"
 	"github.com/erigontech/erigon-lib/config3"
 	"github.com/erigontech/erigon-lib/direct"
 	"github.com/erigontech/erigon-lib/gointerfaces"
@@ -67,8 +68,6 @@ import (
 	"github.com/erigontech/erigon/cmd/rpcdaemon/rpcservices"
 	"github.com/erigontech/erigon/cmd/utils"
 	"github.com/erigontech/erigon/cmd/utils/flags"
-	"github.com/erigontech/erigon/common"
-	"github.com/erigontech/erigon/common/paths"
 	"github.com/erigontech/erigon/consensus"
 	"github.com/erigontech/erigon/consensus/aura"
 	"github.com/erigontech/erigon/consensus/ethash"
@@ -368,12 +367,15 @@ func RemoteServices(ctx context.Context, cfg *httpcfg.HttpCfg, logger log.Logger
 
 	// Configure DB first
 	var allSnapshots *freezeblocks.RoSnapshots
-	var allBorSnapshots *freezeblocks.BorRoSnapshots
 	var allBscSnapshots *freezeblocks.BscRoSnapshots
+	var allBorSnapshots *heimdall.RoSnapshots
 	onNewSnapshot := func() {}
 	roTxLimit := int64(cfg.DBReadConcurrency)
 
 	var cc *chain.Config
+
+	var bridgeStore bridge.Store
+	var heimdallStore heimdall.Store
 
 	if cfg.WithDatadir {
 		// Opening all databases in Accede and non-Readonly modes. Here is the motivation:
@@ -388,7 +390,7 @@ func RemoteServices(ctx context.Context, cfg *httpcfg.HttpCfg, logger log.Logger
 		var rwKv kv.RwDB
 		logger.Warn("Opening chain db", "path", cfg.Dirs.Chaindata)
 		limiter := semaphore.NewWeighted(roTxLimit)
-		rwKv, err = kv2.NewMDBX(logger).RoTxsLimiter(limiter).Path(cfg.Dirs.Chaindata).Accede().Open(ctx)
+		rwKv, err = kv2.New(kv.ChainDB, logger).RoTxsLimiter(limiter).Path(cfg.Dirs.Chaindata).Accede(true).Open(ctx)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, ff, nil, nil, err
 		}
@@ -416,17 +418,29 @@ func RemoteServices(ctx context.Context, cfg *httpcfg.HttpCfg, logger log.Logger
 
 		// Configure sapshots
 		allSnapshots = freezeblocks.NewRoSnapshots(cfg.Snap, cfg.Dirs.Snap, 0, logger)
-		allBorSnapshots = freezeblocks.NewBorRoSnapshots(cfg.Snap, cfg.Dirs.Snap, 0, logger)
+		allBorSnapshots = heimdall.NewRoSnapshots(cfg.Snap, cfg.Dirs.Snap, 0, logger)
 		allBscSnapshots = freezeblocks.NewBscRoSnapshots(cfg.Snap, cfg.Dirs.Snap, 0, logger)
-		blockReader = freezeblocks.NewBlockReader(allSnapshots, allBorSnapshots, allBscSnapshots)
+
+		if polygonSync {
+			heimdallStore = heimdall.NewSnapshotStore(heimdall.NewMdbxStore(logger, cfg.Dirs.DataDir, roTxLimit), allBorSnapshots)
+			bridgeStore = bridge.NewSnapshotStore(bridge.NewMdbxStore(cfg.Dirs.DataDir, logger, true, roTxLimit), allBorSnapshots, cc.Bor)
+		} else {
+			bridgeStore = bridge.NewSnapshotStore(bridge.NewDbStore(db), allBorSnapshots, cc.Bor)
+			heimdallStore = heimdall.NewSnapshotStore(heimdall.NewDbStore(db), allBorSnapshots)
+		}
+
+		blockReader = freezeblocks.NewBlockReader(allSnapshots, allBorSnapshots, heimdallStore, bridgeStore, allBscSnapshots)
 		txNumsReader := rawdbv3.TxNums.WithCustomReadTxNumFunc(freezeblocks.ReadTxNumFuncFromBlockReader(ctx, blockReader))
 
-		agg, err := libstate.NewAggregator(ctx, cfg.Dirs, config3.HistoryV3AggregationStep, db, logger)
+		agg, err := libstate.NewAggregator(ctx, cfg.Dirs, config3.DefaultStepSize, db, logger)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, ff, nil, nil, fmt.Errorf("create aggregator: %w", err)
 		}
 		// To povide good UX - immediatly can read snapshots after RPCDaemon start, even if Erigon is down
 		// Erigon does store list of snapshots in db: means RPCDaemon can read this list now, but read by `remoteKvClient.Snapshots` after establish grpc connection
+
+		//TODO - its probably better to use:  <-blockReader.Ready() here - but it depends how
+		//this is called at a process level
 		allSegmentsDownloadComplete, err := rawdb.AllSegmentsDownloadCompleteFromDB(rwKv)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, err
@@ -500,7 +514,7 @@ func RemoteServices(ctx context.Context, cfg *httpcfg.HttpCfg, logger log.Logger
 		if cc.Parlia != nil {
 			logger.Warn("Opening blob store", "path", cfg.Dirs.Blobs)
 			blobDbPath := path.Join(cfg.Dirs.Blobs, "blob")
-			blobDb := kv2.NewMDBX(log.New()).Path(blobDbPath).MustOpen()
+			blobDb := kv2.New(kv.BlobDb, log.New()).Path(blobDbPath).MustOpen()
 			blobStore := blob_storage.NewBlobStore(blobDb, afero.NewBasePathFs(afero.NewOsFs(), cfg.Dirs.Blobs), math.MaxUint64, cc)
 			blockReader.WithSidecars(blobStore)
 		}
@@ -558,26 +572,22 @@ func RemoteServices(ctx context.Context, cfg *httpcfg.HttpCfg, logger log.Logger
 				stateReceiverContractAddress := cc.Bor.StateReceiverContractAddress()
 
 				bridgeConfig := bridge.ReaderConfig{
-					Ctx:                          ctx,
-					DataDir:                      cfg.DataDir,
+					Store:                        bridgeStore,
 					Logger:                       logger,
 					StateReceiverContractAddress: stateReceiverContractAddress,
 					RoTxLimit:                    roTxLimit,
 				}
-				bridgeReader, err = bridge.AssembleReader(bridgeConfig)
+				bridgeReader, err = bridge.AssembleReader(ctx, bridgeConfig)
 				if err != nil {
 					return nil, nil, nil, nil, nil, nil, nil, ff, nil, nil, err
 				}
 
 				heimdallConfig := heimdall.ReaderConfig{
-					Ctx:       ctx,
+					Store:     heimdallStore,
 					BorConfig: cc.Bor.(*borcfg.BorConfig),
-					DataDir:   cfg.DataDir,
-					TempDir:   cfg.Dirs.Tmp,
 					Logger:    logger,
-					RoTxLimit: roTxLimit,
 				}
-				heimdallReader, err = heimdall.AssembleReader(heimdallConfig)
+				heimdallReader, err = heimdall.AssembleReader(ctx, heimdallConfig)
 				if err != nil {
 					return nil, nil, nil, nil, nil, nil, nil, ff, nil, nil, err
 				}
@@ -589,7 +599,7 @@ func RemoteServices(ctx context.Context, cfg *httpcfg.HttpCfg, logger log.Logger
 			// bor (consensus) specific db
 			borDbPath := filepath.Join(cfg.DataDir, "bor")
 			logger.Warn("[rpc] Opening Bor db", "path", borDbPath)
-			borKv, err = kv2.NewMDBX(logger).Path(borDbPath).Label(kv.ConsensusDB).Accede().Open(ctx)
+			borKv, err = kv2.New(kv.ConsensusDB, logger).Path(borDbPath).Accede(true).Open(ctx)
 			if err != nil {
 				return nil, nil, nil, nil, nil, nil, nil, ff, nil, nil, err
 			}
@@ -601,13 +611,13 @@ func RemoteServices(ctx context.Context, cfg *httpcfg.HttpCfg, logger log.Logger
 			// bsc (consensus) specific db
 			bscDbPath := filepath.Join(cfg.DataDir, "parlia")
 			logger.Warn("[rpc] Opening Bsc db", "path", bscDbPath)
-			bscKv, err = kv2.NewMDBX(logger).Path(bscDbPath).Label(kv.ConsensusDB).Accede().Open(ctx)
+			bscKv, err = kv2.New(kv.ConsensusDB, logger).Path(bscDbPath).Accede(true).Open(ctx)
 			if err != nil {
 				return nil, nil, nil, nil, nil, nil, nil, ff, nil, nil, err
 			}
 			engine = parlia.NewRo(cc, bscKv, blockReader, logger)
 		} else if cc != nil && cc.Aura != nil {
-			consensusDB, err := kv2.NewMDBX(logger).Path(filepath.Join(cfg.DataDir, "aura")).Label(kv.ConsensusDB).Accede().Open(ctx)
+			consensusDB, err := kv2.New(kv.ConsensusDB, logger).Path(filepath.Join(cfg.DataDir, "aura")).Accede(true).Open(ctx)
 			if err != nil {
 				return nil, nil, nil, nil, nil, nil, nil, ff, nil, nil, err
 			}
@@ -916,7 +926,7 @@ func ObtainJWTSecret(cfg *httpcfg.HttpCfg, logger log.Logger) ([]byte, error) {
 		cfg.JWTSecretPath = "jwt.hex"
 	}
 	if data, err := os.ReadFile(cfg.JWTSecretPath); err == nil {
-		jwtSecret := common.FromHex(strings.TrimSpace(string(data)))
+		jwtSecret := libcommon.FromHex(strings.TrimSpace(string(data)))
 		if len(jwtSecret) == 32 {
 			return jwtSecret, nil
 		}
