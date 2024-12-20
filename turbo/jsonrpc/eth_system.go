@@ -18,6 +18,7 @@ package jsonrpc
 
 import (
 	"context"
+	"github.com/erigontech/erigon/eth/stagedsync/stages"
 	"math/big"
 
 	"github.com/erigontech/erigon-lib/chain"
@@ -49,26 +50,59 @@ func (api *APIImpl) BlockNumber(ctx context.Context) (hexutil.Uint64, error) {
 
 // Syncing implements eth_syncing. Returns a data object detailing the status of the sync process or false if not syncing.
 func (api *APIImpl) Syncing(ctx context.Context) (interface{}, error) {
-	reply, err := api.ethBackend.Syncing(ctx)
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	highestBlock, err := stages.GetStageProgress(tx, stages.Headers)
 	if err != nil {
 		return false, err
 	}
-	if !reply.Syncing {
-		return false, nil
+
+	currentBlock, err := stages.GetStageProgress(tx, stages.Finish)
+	if err != nil {
+		return false, err
 	}
 
-	// Still sync-ing, gather the block sync stats
-	highestBlock := reply.LastNewBlockSeen
-	currentBlock := reply.CurrentBlock
+	if currentBlock > 0 && currentBlock >= highestBlock {
+		return false, nil
+	} // Return not syncing if the synchronisation already completed
+
 	type S struct {
 		StageName   string         `json:"stage_name"`
 		BlockNumber hexutil.Uint64 `json:"block_number"`
 	}
-	stagesMap := make([]S, len(reply.Stages))
-	for i, stage := range reply.Stages {
-		stagesMap[i].StageName = stage.StageName
-		stagesMap[i].BlockNumber = hexutil.Uint64(stage.BlockNumber)
+	stagesMap := make([]S, len(stages.AllStages))
+	for i, stage := range stages.AllStages {
+		progress, err := stages.GetStageProgress(tx, stage)
+		if err != nil {
+			return nil, err
+		}
+		stagesMap[i].StageName = string(stage)
+		stagesMap[i].BlockNumber = hexutil.Uint64(progress)
 	}
+
+	//reply, err := api.ethBackend.Syncing(ctx)
+	//if err != nil {
+	//	return false, err
+	//}
+	//if !reply.Syncing {
+	//	return false, nil
+	//}
+	//
+	//// Still sync-ing, gather the block sync stats
+	//highestBlock := reply.LastNewBlockSeen
+	//currentBlock := reply.CurrentBlock
+	//type S struct {
+	//	StageName   string         `json:"stage_name"`
+	//	BlockNumber hexutil.Uint64 `json:"block_number"`
+	//}
+	//stagesMap := make([]S, len(reply.Stages))
+	//for i, stage := range reply.Stages {
+	//	stagesMap[i].StageName = stage.StageName
+	//	stagesMap[i].BlockNumber = hexutil.Uint64(stage.BlockNumber)
+	//}
 
 	return map[string]interface{}{
 		"startingBlock": "0x0", // 0x0 is a placeholder, I do not think it matters what we return here
