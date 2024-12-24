@@ -251,7 +251,7 @@ jobs:
       if: ${{ inputs.perform_release }}
       env:
         BUILD_VERSION: ${{ inputs.release_version }}
-        DOCKER_URL: ${{ env.DOCKERHUB_REPOSITORY }}
+        DOCKER_URL: ghcr.io/${{ env.DOCKERHUB_REPOSITORY }}
         DOCKER_PUBLISH_LATEST_CONDITION: ${{ inputs.publish_latest_tag && format('--tag {0}:latest ',env.DOCKERHUB_REPOSITORY) || '' }}
       run: |
         pwd
