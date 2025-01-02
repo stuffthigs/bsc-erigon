@@ -18,29 +18,15 @@ package systemcontracts
 
 import (
 	"fmt"
+	"math/big"
+	"strconv"
+
 	"github.com/erigontech/erigon-lib/chain"
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/log/v3"
 	"github.com/erigontech/erigon/core/state"
 	"github.com/erigontech/erigon/core/types"
-	"math/big"
-	"strconv"
 )
-
-type UpgradeConfig struct {
-	BeforeUpgrade upgradeHook
-	AfterUpgrade  upgradeHook
-	ContractAddr  libcommon.Address
-	CommitUrl     string
-	Code          string
-}
-
-type Upgrade struct {
-	UpgradeName string
-	Configs     []*UpgradeConfig
-}
-
-type upgradeHook func(blockNumber *big.Int, contractAddr libcommon.Address, statedb *state.IntraBlockState) error
 
 var (
 	// SystemContractCodeLookup is used to address a flaw in the upgrade logic of the system contracts. Since they are updated directly, without first being self-destructed

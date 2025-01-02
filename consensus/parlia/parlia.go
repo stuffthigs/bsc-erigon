@@ -6,14 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/erigontech/erigon-lib/common/math"
-	"github.com/erigontech/erigon-lib/common/u256"
-	"github.com/erigontech/erigon-lib/crypto"
-	"github.com/erigontech/erigon-lib/crypto/cryptopool"
-	"github.com/erigontech/erigon-lib/rlp"
-	"github.com/erigontech/erigon/consensus/parlia/finality"
-	"github.com/erigontech/erigon/core/tracing"
-	"github.com/erigontech/erigon/core/vm/evmtypes"
 	"io"
 	"math/big"
 	"sort"
@@ -21,30 +13,38 @@ import (
 	"sync"
 	"time"
 
-	"github.com/erigontech/erigon/turbo/services"
-
 	"github.com/Giulio2002/bls"
-	"github.com/erigontech/erigon-lib/chain"
-	libcommon "github.com/erigontech/erigon-lib/common"
-	"github.com/erigontech/erigon-lib/common/length"
+
 	lru "github.com/hashicorp/golang-lru/arc/v2"
+	"github.com/holiman/uint256"
 	"github.com/willf/bitset"
 
+	"github.com/erigontech/erigon-lib/chain"
+	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/hexutility"
+	"github.com/erigontech/erigon-lib/common/length"
+	"github.com/erigontech/erigon-lib/common/math"
+	"github.com/erigontech/erigon-lib/common/u256"
+	"github.com/erigontech/erigon-lib/crypto"
+	"github.com/erigontech/erigon-lib/crypto/cryptopool"
 	"github.com/erigontech/erigon-lib/kv"
 	"github.com/erigontech/erigon-lib/log/v3"
+	"github.com/erigontech/erigon-lib/rlp"
 	"github.com/erigontech/erigon/accounts/abi"
 	"github.com/erigontech/erigon/consensus"
 	"github.com/erigontech/erigon/consensus/misc"
+	"github.com/erigontech/erigon/consensus/parlia/finality"
 	"github.com/erigontech/erigon/core"
 	"github.com/erigontech/erigon/core/forkid"
 	"github.com/erigontech/erigon/core/state"
 	"github.com/erigontech/erigon/core/systemcontracts"
+	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/erigon/core/vm"
+	"github.com/erigontech/erigon/core/vm/evmtypes"
 	"github.com/erigontech/erigon/params"
 	"github.com/erigontech/erigon/rpc"
-	"github.com/holiman/uint256"
+	"github.com/erigontech/erigon/turbo/services"
 )
 
 const (
@@ -579,6 +579,17 @@ func (p *Parlia) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 		}
 	}
 
+	prague := chain.Config().IsPrague(header.Time)
+	if !prague {
+		if header.RequestsHash != nil {
+			return fmt.Errorf("invalid RequestsHash, have %#x, expected nil", header.RequestsHash)
+		}
+	} else {
+		if header.RequestsHash == nil {
+			return errors.New("header has nil RequestsHash after Prague")
+		}
+	}
+
 	// All basic checks passed, verify cascading fields
 	return p.verifyCascadingFields(chain, header, parents)
 }
@@ -593,10 +604,6 @@ func ValidateHeaderUnusedFields(header *types.Header) error {
 	// Ensure that the block doesn't contain any uncles which are meaningless in PoA
 	if header.UncleHash != uncleHash {
 		return errInvalidUncleHash
-	}
-
-	if header.RequestsHash != nil {
-		return consensus.ErrUnexpectedRequests
 	}
 
 	return nil
@@ -891,6 +898,12 @@ func (p *Parlia) Initialize(config *chain.Config, chain consensus.ChainHeaderRea
 	if err = p.verifyTurnLength(chain, header, state); err != nil {
 		return err
 	}
+
+	// store block hashes for EIP-2935 (BEP440) upgrade
+	if config.IsPrague(header.Time) {
+		misc.StoreBlockHashesEip2935(header, state)
+	}
+
 	// update validators every day
 	if p.chainConfig.IsFeynman(header.Number.Uint64(), header.Time) && isBreatheBlock(parentHeader.Time, header.Time) {
 		// we should avoid update validators in the Feynman upgrade block
@@ -1143,9 +1156,6 @@ func (p *Parlia) FinalizeAndAssemble(chainConfig *chain.Config, header *types.He
 	txs types.Transactions, uncles []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal,
 	chain consensus.ChainReader, syscall consensus.SystemCall, call consensus.Call, logger log.Logger,
 ) (*types.Block, types.Transactions, types.Receipts, types.FlatRequests, error) {
-	if header.RequestsHash != nil {
-		return nil, nil, nil, nil, consensus.ErrUnexpectedRequests
-	}
 
 	outTxs, outReceipts, _, err := p.finalize(header, ibs, txs, receipts, chain, true, nil, 0, logger)
 	if err != nil {

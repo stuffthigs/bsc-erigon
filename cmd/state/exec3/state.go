@@ -19,8 +19,10 @@ package exec3
 import (
 	"context"
 	"fmt"
-	"github.com/erigontech/erigon/core/systemcontracts"
+	"github.com/erigontech/erigon/consensus/misc"
 	"sync"
+
+	"github.com/erigontech/erigon/core/systemcontracts"
 
 	"github.com/erigontech/erigon-lib/common/dbg"
 	"golang.org/x/sync/errgroup"
@@ -238,8 +240,15 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 		syscall := func(contract libcommon.Address, data []byte, ibs *state.IntraBlockState, header *types.Header, constCall bool) ([]byte, error) {
 			return core.SysCallContract(contract, data, rw.chainConfig, ibs, header, rw.engine, constCall /* constCall */)
 		}
-		if rw.isPoSA && !rw.chainConfig.IsFeynman(header.Number.Uint64(), header.Time) {
-			systemcontracts.UpgradeBuildInSystemContract(rw.chainConfig, header.Number, lastBlockTime, header.Time, ibs, rw.logger)
+		if rw.isPoSA {
+			if !rw.chainConfig.IsFeynman(header.Number.Uint64(), header.Time) {
+				systemcontracts.UpgradeBuildInSystemContract(rw.chainConfig, header.Number, lastBlockTime, header.Time, ibs, rw.logger)
+			}
+			// HistoryStorageAddress is a special system contract in bsc, which can't be upgraded
+			if rw.chainConfig.IsOnPrague(header.Number, lastBlockTime, header.Time) {
+				misc.InitializeBlockHashesEip2935(ibs)
+				log.Info("Set code for HistoryStorageAddress", "blockNumber", header.Number.Uint64(), "blockTime", header.Time)
+			}
 		}
 		if err := rw.engine.Initialize(rw.chainConfig, rw.chain, header, ibs, syscall, rw.logger, nil); err != nil {
 			txTask.Error = err
