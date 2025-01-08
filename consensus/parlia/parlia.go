@@ -974,7 +974,7 @@ func (p *Parlia) finalize(header *types.Header, ibs *state.IntraBlockState, txs 
 		if txIndex == len(txs)-1 && finish {
 			if fs := finality.GetFinalizationService(); fs != nil {
 				curSnap, _ := p.snapshot(chain, number, header.Hash(), nil, true)
-				if curSnap.Attestation != nil {
+				if curSnap != nil && curSnap.Attestation != nil {
 					fs.UpdateFinality(curSnap.Attestation.SourceHash, curSnap.Attestation.TargetHash)
 				}
 			}
@@ -1436,7 +1436,6 @@ func (p *Parlia) distributeToSystem(val libcommon.Address, ibs *state.IntraBlock
 func (p *Parlia) distributeToValidator(val libcommon.Address, ibs *state.IntraBlockState, header *types.Header,
 	txs *types.Transactions, receipts *types.Receipts, systemTxs *types.Transactions,
 	usedGas *uint64, mining bool, systemTxCall consensus.SystemTxCall, curIndex, txIndex *int) (bool, error) {
-
 	if *curIndex == *txIndex {
 		bal, err := ibs.GetBalance(consensus.SystemAddress)
 		if err != nil {
