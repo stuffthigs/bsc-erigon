@@ -1142,11 +1142,25 @@ func stageExec(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) error
 			block = sendersProgress
 		}
 
-		for bn := execProgress; bn < block; bn++ {
-			if err := db.Update(ctx, func(tx kv.RwTx) error {
+		if noCommit {
+			tx, err := db.BeginTemporalRw(ctx)
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			for bn := execProgress; bn < block; bn++ {
 				txc.Tx = tx
 				if err := stagedsync.SpawnExecuteBlocksStage(s, sync, txc, bn, ctx, cfg, logger); err != nil {
 					return err
+				}
+			}
+		} else {
+			if err := db.Update(ctx, func(tx kv.RwTx) error {
+				for bn := execProgress; bn < block; bn++ {
+					txc.Tx = tx
+					if err := stagedsync.SpawnExecuteBlocksStage(s, sync, txc, bn, ctx, cfg, logger); err != nil {
+						return err
+					}
 				}
 				return nil
 			}); err != nil {
@@ -1338,7 +1352,7 @@ func allSnapshots(ctx context.Context, db kv.RoDB, logger log.Logger) (*freezebl
 		blockReader := freezeblocks.NewBlockReader(_allSnapshotsSingleton, _allBorSnapshotsSingleton, _heimdallStoreSingleton, _bridgeStoreSingleton, _allBscSnapshotsSingleton)
 
 		txNums := rawdbv3.TxNums.WithCustomReadTxNumFunc(freezeblocks.ReadTxNumFuncFromBlockReader(ctx, blockReader))
-		_aggSingleton, err = libstate.NewAggregator(ctx, dirs, config3.DefaultStepSize, db, logger)
+		_aggSingleton, err = libstate.NewAggregator2(ctx, dirs, config3.DefaultStepSize, db, logger)
 		if err != nil {
 			panic(err)
 		}
@@ -1515,7 +1529,7 @@ func newSync(ctx context.Context, db kv.TemporalRwDB, miningConfig *params.Minin
 		blobStore = parlia.BlobStore
 	}
 
-	stageList := stages2.NewDefaultStages(context.Background(), db, snapDb, blobStore, p2p.Config{}, &cfg, sentryControlServer, notifications, nil, blockReader, blockRetire, agg, nil, nil,
+	stageList := stages2.NewDefaultStages(context.Background(), db, snapDb, blobStore, p2p.Config{}, &cfg, sentryControlServer, notifications, nil, blockReader, blockRetire, nil, nil,
 		engine, heimdallClient, heimdallStore, bridgeStore, recents, signatures, logger)
 	sync := stagedsync.New(cfg.Sync, stageList, stagedsync.DefaultUnwindOrder, stagedsync.DefaultPruneOrder, logger, stages.ModeApplyingBlocks)
 
