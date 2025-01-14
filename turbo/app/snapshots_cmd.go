@@ -886,8 +886,8 @@ func doClearIndexing(cliCtx *cli.Context) error {
 	}
 
 	// remove salt-state.txt and salt-block.txt
-	os.Remove(filepath.Join(snapDir, "salt-state.txt"))
-	os.Remove(filepath.Join(snapDir, "salt-blocks.txt"))
+	//os.Remove(filepath.Join(snapDir, "salt-state.txt"))
+	//os.Remove(filepath.Join(snapDir, "salt-blocks.txt"))
 
 	return nil
 }
