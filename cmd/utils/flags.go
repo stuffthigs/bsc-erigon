@@ -676,6 +676,11 @@ var (
 		Name:  ethconfig.FlagSnapStateStop,
 		Usage: "Workaround to stop producing new state files, if you meet some state-related critical bug. It will stop aggregate DB history in a state files. DB will grow and may slightly slow-down - and removing this flag in future will not fix this effect (db size will not greatly reduce).",
 	}
+	SnapSkipStateSnapshotDownloadFlag = cli.BoolFlag{
+		Name:  "snap.skip-state-snapshot-download",
+		Usage: "Skip state download and start from genesis block",
+		Value: false,
+	}
 	TorrentVerbosityFlag = cli.IntFlag{
 		Name:  "torrent.verbosity",
 		Value: 2,
@@ -750,6 +755,7 @@ var (
 		Usage: "Enable WRITE_MAP feature for fast database writes and fast commit times",
 		Value: true,
 	}
+
 	HealthCheckFlag = cli.BoolFlag{
 		Name:  "healthcheck",
 		Usage: "Enabling grpc health check",
@@ -1001,18 +1007,28 @@ var (
 		Usage: "Print in logs RPC requests slower than given threshold: 100ms, 1s, 1m. Exluded methods: " + strings.Join(rpccfg.SlowLogBlackList, ","),
 		Value: 0,
 	}
-	CaplinBackfillingFlag = cli.BoolFlag{
-		Name:  "caplin.backfilling",
+	CaplinArchiveBlocksFlag = cli.BoolFlag{
+		Name:  "caplin.blocks-archive",
 		Usage: "sets whether backfilling is enabled for caplin",
 		Value: false,
 	}
-	CaplinBlobBackfillingFlag = cli.BoolFlag{
-		Name:  "caplin.backfilling.blob",
+	CaplinArchiveStatesFlag = cli.BoolFlag{
+		Name:  "caplin.states-archive",
+		Usage: "enables archival node for historical states in caplin (it will enable block archival as well)",
+		Value: false,
+	}
+	CaplinArchiveBlobsFlag = cli.BoolFlag{
+		Name:  "caplin.blobs-archive",
 		Usage: "sets whether backfilling is enabled for caplin",
+		Value: false,
+	}
+	CaplinImmediateBlobBackfillFlag = cli.BoolFlag{
+		Name:  "caplin.blobs-immediate-backfill",
+		Usage: "sets whether caplin should immediatelly backfill blobs (4096 epochs)",
 		Value: false,
 	}
 	CaplinDisableBlobPruningFlag = cli.BoolFlag{
-		Name:  "caplin.backfilling.blob.no-pruning",
+		Name:  "caplin.blobs-no-pruning",
 		Usage: "disable blob pruning in caplin",
 		Value: false,
 	}
@@ -1021,11 +1037,7 @@ var (
 		Usage: "disable checkpoint sync in caplin",
 		Value: false,
 	}
-	CaplinArchiveFlag = cli.BoolFlag{
-		Name:  "caplin.archive",
-		Usage: "enables archival node in caplin",
-		Value: false,
-	}
+
 	CaplinEnableSnapshotGeneration = cli.BoolFlag{
 		Name:  "caplin.snapgen",
 		Usage: "enables snapshot generation in caplin",
@@ -1081,13 +1093,17 @@ var (
 		Usage: "Enable 'chaos monkey' to generate spontaneous network/consensus/etc failures. Use ONLY for testing",
 		Value: false,
 	}
-	ShutterEnabled = cli.BoolFlag{
+	ShutterEnabledFlag = cli.BoolFlag{
 		Name:  "shutter",
 		Usage: "Enable the Shutter encrypted transactions mempool (defaults to false)",
 	}
-	ShutterKeyperBootnodes = cli.StringSliceFlag{
-		Name:  "shutter.keyper.bootnodes",
-		Usage: "Use to override the default keyper bootnodes (defaults to using the bootnodes from the embedded config)",
+	ShutterP2pBootstrapNodesFlag = cli.StringSliceFlag{
+		Name:  "shutter.p2p.bootstrap.nodes",
+		Usage: "Use to override the default p2p bootstrap nodes (defaults to using the values in the embedded config)",
+	}
+	ShutterP2pListenPortFlag = cli.UintFlag{
+		Name:  "shutter.p2p.listen.port",
+		Usage: "Use to override the default p2p listen port (defaults to 23102)",
 	}
 )
 
@@ -1413,8 +1429,7 @@ func SetP2PConfig(ctx *cli.Context, cfg *p2p.Config, nodeName, datadir string, l
 		cfg.MetricsEnabled = ctx.Bool(MetricsEnabledFlag.Name)
 	}
 
-	ethPeers := cfg.MaxPeers
-	logger.Info("Maximum peer count", "ETH", ethPeers, "total", cfg.MaxPeers)
+	logger.Info("Maximum peer count", "total", cfg.MaxPeers)
 
 	if netrestrict := ctx.String(NetrestrictFlag.Name); netrestrict != "" {
 		list, err := netutil.ParseNetlist(netrestrict)
@@ -1567,24 +1582,31 @@ func setTxPool(ctx *cli.Context, dbDir string, fullCfg *ethconfig.Config) {
 	if ctx.IsSet(DbWriteMapFlag.Name) {
 		cfg.MdbxWriteMap = ctx.Bool(DbWriteMapFlag.Name)
 	}
+	if ctx.IsSet(TxPoolGossipDisableFlag.Name) {
+		cfg.NoGossip = ctx.Bool(TxPoolGossipDisableFlag.Name)
+	}
 	cfg.LogEvery = 3 * time.Minute
 	cfg.CommitEvery = libcommon.RandomizeDuration(ctx.Duration(TxPoolCommitEveryFlag.Name))
 	cfg.DBDir = dbDir
 	fullCfg.TxPool = cfg
 }
 
-func setShutter(ctx *cli.Context, chainName string, cfg *ethconfig.Config) {
-	if enabled := ctx.Bool(ShutterEnabled.Name); !enabled {
+func setShutter(ctx *cli.Context, chainName string, nodeConfig *nodecfg.Config, ethConfig *ethconfig.Config) {
+	if enabled := ctx.Bool(ShutterEnabledFlag.Name); !enabled {
 		return
 	}
 
 	config := shutter.ConfigByChainName(chainName)
+	config.PrivateKey = nodeConfig.P2P.PrivateKey
 	// check for cli overrides
-	if ctx.IsSet(ShutterKeyperBootnodes.Name) {
-		config.KeyperBootnodes = ctx.StringSlice(ShutterKeyperBootnodes.Name)
+	if ctx.IsSet(ShutterP2pBootstrapNodesFlag.Name) {
+		config.BootstrapNodes = ctx.StringSlice(ShutterP2pBootstrapNodesFlag.Name)
+	}
+	if ctx.IsSet(ShutterP2pListenPortFlag.Name) {
+		config.ListenPort = ctx.Uint64(ShutterP2pListenPortFlag.Name)
 	}
 
-	cfg.Shutter = config
+	ethConfig.Shutter = config
 }
 
 func setEthash(ctx *cli.Context, datadir string, cfg *ethconfig.Config) {
@@ -1673,15 +1695,23 @@ func setParlia(ctx *cli.Context, cfg *chain.ParliaConfig, datadir string) {
 	cfg.DBPath = filepath.Join(datadir, "parlia")
 }
 
-func setBorConfig(ctx *cli.Context, cfg *ethconfig.Config) {
+func setBorConfig(ctx *cli.Context, cfg *ethconfig.Config, nodeConfig *nodecfg.Config, logger log.Logger) {
 	cfg.HeimdallURL = ctx.String(HeimdallURLFlag.Name)
 	cfg.WithoutHeimdall = ctx.Bool(WithoutHeimdallFlag.Name)
 	cfg.WithHeimdallMilestones = ctx.Bool(WithHeimdallMilestones.Name)
 	cfg.WithHeimdallWaypointRecording = ctx.Bool(WithHeimdallWaypoints.Name)
 	cfg.PolygonSync = ctx.Bool(PolygonSyncFlag.Name)
 	cfg.PolygonSyncStage = ctx.Bool(PolygonSyncStageFlag.Name)
-	heimdall.RecordWayPoints(
-		cfg.WithHeimdallWaypointRecording || cfg.PolygonSync || cfg.PolygonSyncStage)
+	heimdall.RecordWayPoints(cfg.WithHeimdallWaypointRecording || cfg.PolygonSync || cfg.PolygonSyncStage)
+
+	chainConfig := params.ChainConfigByChainName(ctx.String(ChainFlag.Name))
+	if chainConfig.Bor != nil && !ctx.IsSet(MaxPeersFlag.Name) {
+		// override default max devp2p peers for polygon as per
+		// https://forum.polygon.technology/t/introducing-our-new-dns-discovery-for-polygon-pos-faster-smarter-more-connected/19871
+		// which encourages high peer count
+		nodeConfig.P2P.MaxPeers = 100
+		logger.Info("Maximum peer count default sanitizing for bor", "total", nodeConfig.P2P.MaxPeers)
+	}
 }
 
 func setMiner(ctx *cli.Context, cfg *params.MiningConfig) {
@@ -1753,13 +1783,14 @@ func setBeaconAPI(ctx *cli.Context, cfg *ethconfig.Config) error {
 
 func setCaplin(ctx *cli.Context, cfg *ethconfig.Config) {
 	// Caplin's block's backfilling is enabled if any of the following flags are set
-	cfg.CaplinConfig.Backfilling = ctx.Bool(CaplinBackfillingFlag.Name) || ctx.Bool(CaplinArchiveFlag.Name) || ctx.Bool(CaplinBlobBackfillingFlag.Name)
+	cfg.CaplinConfig.ArchiveBlocks = ctx.Bool(CaplinArchiveBlocksFlag.Name) || ctx.Bool(CaplinArchiveStatesFlag.Name) || ctx.Bool(CaplinArchiveBlobsFlag.Name)
 	cfg.CaplinConfig.SnapshotGenerationEnabled = ctx.Bool(CaplinEnableSnapshotGeneration.Name)
 	// More granularity here.
-	cfg.CaplinConfig.BlobBackfilling = ctx.Bool(CaplinBlobBackfillingFlag.Name)
+	cfg.CaplinConfig.ArchiveBlobs = ctx.Bool(CaplinArchiveBlobsFlag.Name)
+	cfg.CaplinConfig.ImmediateBlobsBackfilling = ctx.Bool(CaplinImmediateBlobBackfillFlag.Name)
 	cfg.CaplinConfig.BlobPruningDisabled = ctx.Bool(CaplinDisableBlobPruningFlag.Name)
 	cfg.CaplinConfig.DisabledCheckpointSync = ctx.Bool(CaplinDisableCheckpointSyncFlag.Name)
-	cfg.CaplinConfig.Archive = ctx.Bool(CaplinArchiveFlag.Name)
+	cfg.CaplinConfig.ArchiveStates = ctx.Bool(CaplinArchiveStatesFlag.Name)
 	cfg.CaplinConfig.MevRelayUrl = ctx.String(CaplinMevRelayUrl.Name)
 	cfg.CaplinConfig.EnableValidatorMonitor = ctx.Bool(CaplinValidatorMonitorFlag.Name)
 	if checkpointUrls := ctx.StringSlice(CaplinCheckpointSyncUrlFlag.Name); len(checkpointUrls) > 0 {
@@ -1869,41 +1900,11 @@ func SetEthConfig(ctx *cli.Context, nodeConfig *nodecfg.Config, cfg *ethconfig.C
 	cfg.Snapshot.KeepBlocks = ctx.Bool(SnapKeepBlocksFlag.Name)
 	cfg.Snapshot.ProduceE2 = !ctx.Bool(SnapStopFlag.Name)
 	cfg.Snapshot.ProduceE3 = !ctx.Bool(SnapStateStopFlag.Name)
+	cfg.Snapshot.DisableDownloadE3 = ctx.Bool(SnapSkipStateSnapshotDownloadFlag.Name)
 	cfg.Snapshot.NoDownloader = ctx.Bool(NoDownloaderFlag.Name)
 	cfg.Snapshot.Verify = ctx.Bool(DownloaderVerifyFlag.Name)
 	cfg.Snapshot.DownloaderAddr = strings.TrimSpace(ctx.String(DownloaderAddrFlag.Name))
 	cfg.Snapshot.ChainName = chain
-	if cfg.Snapshot.DownloaderAddr == "" {
-		downloadRateStr := ctx.String(TorrentDownloadRateFlag.Name)
-		uploadRateStr := ctx.String(TorrentUploadRateFlag.Name)
-		var downloadRate, uploadRate datasize.ByteSize
-		if err := downloadRate.UnmarshalText([]byte(downloadRateStr)); err != nil {
-			panic(err)
-		}
-		if err := uploadRate.UnmarshalText([]byte(uploadRateStr)); err != nil {
-			panic(err)
-		}
-		lvl, _, err := downloadercfg2.Int2LogLevel(ctx.Int(TorrentVerbosityFlag.Name))
-		if err != nil {
-			panic(err)
-		}
-		logger.Info("torrent verbosity", "level", lvl.LogString())
-		version := "erigon: " + params.VersionWithCommit(params.GitCommit)
-		webseedsList := libcommon.CliString2Array(ctx.String(WebSeedsFlag.Name))
-		if known, ok := snapcfg.KnownWebseeds[chain]; ok {
-			webseedsList = append(webseedsList, known...)
-		}
-		cfg.Downloader, err = downloadercfg2.New(ctx.Context, cfg.Dirs, version, lvl, downloadRate, uploadRate,
-			ctx.Int(TorrentPortFlag.Name), ctx.Int(TorrentConnsPerFileFlag.Name), ctx.Int(TorrentDownloadSlotsFlag.Name),
-			libcommon.CliString2Array(ctx.String(TorrentStaticPeersFlag.Name)),
-			webseedsList, chain, true, ctx.Bool(DbWriteMapFlag.Name),
-		)
-		if err != nil {
-			panic(err)
-		}
-		downloadernat.DoNat(nodeConfig.P2P.NAT, cfg.Downloader.ClientConfig, logger)
-	}
-
 	nodeConfig.Http.Snap = cfg.Snapshot
 
 	if ctx.Command.Name == "import" {
@@ -1914,14 +1915,14 @@ func SetEthConfig(ctx *cli.Context, nodeConfig *nodecfg.Config, cfg *ethconfig.C
 	setGPO(ctx, &cfg.GPO)
 
 	setTxPool(ctx, nodeConfig.Dirs.TxPool, cfg)
-	setShutter(ctx, chain, cfg)
+	setShutter(ctx, chain, nodeConfig, cfg)
 
 	setEthash(ctx, nodeConfig.Dirs.DataDir, cfg)
 	setClique(ctx, &cfg.Clique, nodeConfig.Dirs.DataDir)
 	setParlia(ctx, &cfg.Parlia, nodeConfig.Dirs.DataDir)
 	setMiner(ctx, &cfg.Miner)
 	setWhitelist(ctx, cfg)
-	setBorConfig(ctx, cfg)
+	setBorConfig(ctx, cfg, nodeConfig, logger)
 	setSilkworm(ctx, cfg)
 	if err := setBeaconAPI(ctx, cfg); err != nil {
 		log.Error("Failed to set beacon API", "err", err)
@@ -1998,8 +1999,37 @@ func SetEthConfig(ctx *cli.Context, nodeConfig *nodecfg.Config, cfg *ethconfig.C
 		libkzg.SetTrustedSetupFilePath(ctx.String(TrustedSetupFile.Name))
 	}
 
-	if ctx.IsSet(TxPoolGossipDisableFlag.Name) {
-		cfg.DisableTxPoolGossip = ctx.Bool(TxPoolGossipDisableFlag.Name)
+	// Do this after chain config as there are chain type registration
+	// dependencies for know config which need to be set-up
+	if cfg.Snapshot.DownloaderAddr == "" {
+		downloadRateStr := ctx.String(TorrentDownloadRateFlag.Name)
+		uploadRateStr := ctx.String(TorrentUploadRateFlag.Name)
+		var downloadRate, uploadRate datasize.ByteSize
+		if err := downloadRate.UnmarshalText([]byte(downloadRateStr)); err != nil {
+			panic(err)
+		}
+		if err := uploadRate.UnmarshalText([]byte(uploadRateStr)); err != nil {
+			panic(err)
+		}
+		lvl, _, err := downloadercfg2.Int2LogLevel(ctx.Int(TorrentVerbosityFlag.Name))
+		if err != nil {
+			panic(err)
+		}
+		logger.Info("torrent verbosity", "level", lvl.LogString())
+		version := "erigon: " + params.VersionWithCommit(params.GitCommit)
+		webseedsList := libcommon.CliString2Array(ctx.String(WebSeedsFlag.Name))
+		if known, ok := snapcfg.KnownWebseeds[chain]; ok {
+			webseedsList = append(webseedsList, known...)
+		}
+		cfg.Downloader, err = downloadercfg2.New(ctx.Context, cfg.Dirs, version, lvl, downloadRate, uploadRate,
+			ctx.Int(TorrentPortFlag.Name), ctx.Int(TorrentConnsPerFileFlag.Name), ctx.Int(TorrentDownloadSlotsFlag.Name),
+			libcommon.CliString2Array(ctx.String(TorrentStaticPeersFlag.Name)),
+			webseedsList, chain, true, ctx.Bool(DbWriteMapFlag.Name),
+		)
+		if err != nil {
+			panic(err)
+		}
+		downloadernat.DoNat(nodeConfig.P2P.NAT, cfg.Downloader.ClientConfig, logger)
 	}
 }
 
