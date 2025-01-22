@@ -282,7 +282,7 @@ jobs:
 
   build-debian-pkg:
     name: Debian packages
-    needs: [ build-release, test-release ]
+    needs: [ build-release ]
     uses: erigontech/erigon/.github/workflows/reusable-release-build-debian-pkg.yml@main
     with:
       application: ${{ needs.build-release.outputs.application }}
@@ -290,7 +290,7 @@ jobs:
 
 
   publish-docker-image:
-    needs: [ build-release, test-release ]
+    needs: [ build-release ]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     name: Docker image
@@ -427,7 +427,7 @@ jobs:
 
   In-case-of-failure:
     name: "In case of failure: remove remote git tag pointing to the new version."
-    needs: [ publish-release, build-release, test-release ]
+    needs: [ publish-release, build-release ]
     if: always() && !contains(needs.build-release.result, 'success')
     runs-on: ubuntu-22.04
 
