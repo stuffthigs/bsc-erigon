@@ -101,7 +101,7 @@ func ExecuteBlockEphemerallyForBSC(
 	usedGas := new(uint64)
 	usedBlobGas := new(uint64)
 	gp := new(GasPool)
-	gp.AddGas(block.GasLimit()).AddBlobGas(chainConfig.GetMaxBlobGasPerBlock())
+	gp.AddGas(block.GasLimit()).AddBlobGas(chainConfig.GetMaxBlobGasPerBlock(block.Time()))
 
 	var (
 		rejectedTxs []*RejectedTx
