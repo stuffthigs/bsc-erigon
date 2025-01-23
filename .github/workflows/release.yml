@@ -11,7 +11,7 @@ env:
   DOCKER_BASE_IMAGE: "debian:12.8-slim"
   APP_REPO: "node-real/bsc-erigon"
   PACKAGE: "github.com/erigontech/erigon"
-  DOCKERHUB_REPOSITORY: "node-real/bsc-erigon"
+  DOCKERHUB_REPOSITORY: "ghcr.io/node-real/bsc-erigon"
   DOCKERFILE_PATH: "Dockerfile.release"
   LABEL_DESCRIPTION: "Erigon is an implementation of Ethereum (execution layer with embeddable consensus layer), on the efficiency frontier. Archive Node by default."
 
@@ -337,7 +337,7 @@ jobs:
       if: ${{ inputs.perform_release }}
       env:
         BUILD_VERSION: ${{ inputs.release_version }}
-        DOCKER_URL: ghcr.io/${{ env.DOCKERHUB_REPOSITORY }}
+        DOCKER_URL: ${{ env.DOCKERHUB_REPOSITORY }}
         DOCKER_PUBLISH_LATEST_CONDITION: ${{ inputs.publish_latest_tag && format('--tag {0}:latest ',env.DOCKERHUB_REPOSITORY) || '' }}
       run: |
         pwd
