@@ -24,8 +24,9 @@ import (
 
 	"github.com/erigontech/erigon/core/systemcontracts"
 
-	"github.com/erigontech/erigon-lib/common/dbg"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/erigontech/erigon-lib/common/dbg"
 
 	"github.com/erigontech/erigon-lib/log/v3"
 
@@ -105,7 +106,7 @@ func NewWorker(lock sync.Locker, logger log.Logger, ctx context.Context, backgro
 
 		isMining: isMining,
 	}
-	w.taskGasPool.AddBlobGas(chainConfig.GetMaxBlobGasPerBlock())
+	w.taskGasPool.AddBlobGas(chainConfig.GetMaxBlobGasPerBlock(0))
 	w.vmCfg = vm.Config{Debug: true, Tracer: w.callTracer}
 	w.ibs = state.New(w.stateReader)
 	w.posa, w.isPoSA = engine.(consensus.PoSA)
@@ -296,7 +297,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 		}
 
 		systemCall := func(ibs *state.IntraBlockState) ([]byte, bool, error) {
-			rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock())
+			rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock(header.Time))
 			rw.callTracer.Reset()
 			rw.vmCfg.SkipAnalysis = txTask.SkipAnalysis
 			msg := txTask.TxAsMessage
@@ -342,7 +343,7 @@ func (rw *Worker) RunTxTaskNoLock(txTask *state.TxTask, isMining bool) {
 			txTask.Error = err
 		}
 	default:
-		rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock())
+		rw.taskGasPool.Reset(txTask.Tx.GetGas(), rw.chainConfig.GetMaxBlobGasPerBlock(header.Time))
 		rw.callTracer.Reset()
 		rw.vmCfg.SkipAnalysis = txTask.SkipAnalysis
 		ibs.SetTxContext(txTask.TxIndex, txTask.BlockNum)
