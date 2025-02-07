@@ -386,12 +386,6 @@ func (sc *BlobTxSidecar) ValidateBlobTxSidecar(blobVersionedHashes []libcommon.H
 	if l1 != l2 || l1 != l3 || l1 != l4 {
 		return fmt.Errorf("lengths don't match %v %v %v %v", l1, l2, l3, l4)
 	}
-	// the following check isn't strictly necessary as it would be caught by blob gas processing
-	// (and hence it is not explicitly in the spec for this function), but it doesn't hurt to fail
-	// early in case we are getting spammed with too many blobs or there is a bug somewhere:
-	if uint64(l1) > fixedgas.DefaultMaxBlobsPerBlock {
-		return fmt.Errorf("number of blobs exceeds max: %v", l1)
-	}
 	kzgCtx := libkzg.Ctx()
 	err := kzgCtx.VerifyBlobKZGProofBatch(toBlobs(sc.Blobs), toComms(sc.Commitments), toProofs(sc.Proofs))
 	if err != nil {

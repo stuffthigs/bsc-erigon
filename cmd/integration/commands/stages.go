@@ -701,8 +701,7 @@ func stageHeaders(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) er
 		return err
 	}
 
-	sn, borSn, agg, _, bscSn, _, _ := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, _, bscSn, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -807,8 +806,7 @@ func stageBorHeimdall(db kv.TemporalRwDB, ctx context.Context, unwindTypes []str
 		return nil
 	}
 	if unwind > 0 {
-		sn, borSn, agg, _, _, bridgeStore, heimdallStore := allSnapshots(ctx, db, logger)
-		sn, borSn, agg, _, bridgeStore, heimdallStore, err := allSnapshots(ctx, db, logger)
+		sn, borSn, agg, _, _, bridgeStore, heimdallStore, err := allSnapshots(ctx, db, logger)
 		if err != nil {
 			return err
 		}
@@ -842,8 +840,7 @@ func stageBorHeimdall(db kv.TemporalRwDB, ctx context.Context, unwindTypes []str
 		return nil
 	}
 
-	sn, borSn, agg, _, _, bridgeStore, heimdallStore := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, bridgeStore, heimdallStore, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, _, _, bridgeStore, heimdallStore, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -878,8 +875,7 @@ func stageBorHeimdall(db kv.TemporalRwDB, ctx context.Context, unwindTypes []str
 }
 
 func stageBodies(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) error {
-	sn, borSn, agg, _, bscSn, _, _ := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, _, bscSn, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -923,8 +919,7 @@ func stageBodies(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) err
 func stagePolygonSync(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) error {
 	engine, _, stageSync, _, _ := newSync(ctx, db, nil /* miningConfig */, logger)
 	heimdallClient := engine.(*bor.Bor).HeimdallClient
-	sn, borSn, agg, _, _, bridgeStore, heimdallStore := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, bridgeStore, heimdallStore, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, _, _, bridgeStore, heimdallStore, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -959,8 +954,7 @@ func stagePolygonSync(db kv.TemporalRwDB, ctx context.Context, logger log.Logger
 func stageSenders(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) error {
 	tmpdir := datadir.New(datadirCli).Tmp
 	chainConfig := fromdb.ChainConfig(db)
-	sn, borSn, agg, _, bscSn, _, _ := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, _, bscSn, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -1057,8 +1051,7 @@ func stageExec(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) error
 
 	engine, vmConfig, sync, _, _ := newSync(ctx, db, nil /* miningConfig */, logger)
 	must(sync.SetCurrentStage(stages.Execution))
-	sn, borSn, agg, bscSn, _, _, _ := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, bscSn, _, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -1220,8 +1213,7 @@ func stageCustomTrace(db kv.TemporalRwDB, ctx context.Context, logger log.Logger
 
 	engine, vmConfig, sync, _, _ := newSync(ctx, db, nil /* miningConfig */, logger)
 	must(sync.SetCurrentStage(stages.Execution))
-	sn, borSn, agg, _, bscSn, _, _ := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, _, bscSn, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -1261,8 +1253,7 @@ func stageCustomTrace(db kv.TemporalRwDB, ctx context.Context, logger log.Logger
 func stagePatriciaTrie(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) error {
 	dirs, pm := datadir.New(datadirCli), fromdb.PruneMode(db)
 	_ = pm
-	sn, _, agg, _, _, _, _ := allSnapshots(ctx, db, logger)
-	sn, _, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	sn, _, agg, _, _, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -1289,8 +1280,7 @@ func stageTxLookup(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) e
 	_, _, sync, _, _ := newSync(ctx, db, nil /* miningConfig */, logger)
 	chainConfig := fromdb.ChainConfig(db)
 	must(sync.SetCurrentStage(stages.TxLookup))
-	sn, borSn, agg, _, bscSn, _, _ := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	sn, borSn, agg, _, bscSn, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		return err
 	}
@@ -1341,8 +1331,7 @@ func stageTxLookup(db kv.TemporalRwDB, ctx context.Context, logger log.Logger) e
 }
 
 func printAllStages(db kv.RoDB, ctx context.Context, logger log.Logger) error {
-	sn, borSn, agg, _, bscSn, _, _ := allSnapshots(ctx, db, logger)
-	sn, borSn, agg, _, _, _, _ := allSnapshots(ctx, db, logger) // ignore error here to get some stat.
+	sn, borSn, agg, _, bscSn, _, _, _ := allSnapshots(ctx, db, logger) // ignore error here to get some stat.
 	defer sn.Close()
 	defer borSn.Close()
 	defer bscSn.Close()
@@ -1482,13 +1471,11 @@ var _blockWriterSingleton *blockio.BlockWriter
 
 func blocksIO(db kv.RoDB, logger log.Logger) (services.FullBlockReader, *blockio.BlockWriter) {
 	openBlockReaderOnce.Do(func() {
-		sn, borSn, _, _, bscSn, bridgeStore, heimdallStore := allSnapshots(context.Background(), db, logger)
-		_blockReaderSingleton = freezeblocks.NewBlockReader(sn, borSn, heimdallStore, bridgeStore, bscSn)
-		sn, borSn, _, _, bridgeStore, heimdallStore, err := allSnapshots(context.Background(), db, logger)
+		sn, borSn, _, _, bscSn, bridgeStore, heimdallStore, err := allSnapshots(context.Background(), db, logger)
 		if err != nil {
 			panic(err)
 		}
-		_blockReaderSingleton = freezeblocks.NewBlockReader(sn, borSn, heimdallStore, bridgeStore)
+		_blockReaderSingleton = freezeblocks.NewBlockReader(sn, borSn, heimdallStore, bridgeStore, bscSn)
 		_blockWriterSingleton = blockio.NewBlockWriter()
 	})
 	return _blockReaderSingleton, _blockWriterSingleton
@@ -1533,8 +1520,7 @@ func newSync(ctx context.Context, db kv.TemporalRwDB, miningConfig *params.Minin
 		cfg.Miner = *miningConfig
 	}
 	cfg.Dirs = datadir.New(datadirCli)
-	allSn, borSn, agg, _, _, _, _ := allSnapshots(ctx, db, logger)
-	allSn, borSn, agg, _, _, _, err := allSnapshots(ctx, db, logger)
+	allSn, borSn, agg, _, _, _, _, err := allSnapshots(ctx, db, logger)
 	if err != nil {
 		panic(err) // we do already panic above on genesis error
 	}
