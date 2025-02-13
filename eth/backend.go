@@ -353,7 +353,6 @@ func New(ctx context.Context, stack *node.Node, config *ethconfig.Config, logger
 	if err != nil {
 		return nil, err
 	}
-
 	backend.blockSnapshots, backend.blockReader, backend.blockWriter = allSnapshots, blockReader, blockWriter
 
 	backend.chainDB, err = temporal.New(rawChainDB, agg)
@@ -1099,6 +1098,12 @@ func New(ctx context.Context, stack *node.Node, config *ethconfig.Config, logger
 			allBorSnapshots.SetRangeExtractor(heimdall.Events, withRangeExtractor.RangeExtractor())
 		}
 	}
+
+	go func() {
+		if err := agg.MergeLoop(ctx); err != nil {
+			logger.Error("snapashot merge loop error", "err", err)
+		}
+	}()
 
 	return backend, nil
 }
