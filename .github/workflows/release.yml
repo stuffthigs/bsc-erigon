@@ -1,5 +1,5 @@
 name: Release
-run-name: Build release ${{ inputs.release_version}} from branch ${{ inputs.checkout_ref }} by @${{ github.actor }}
+run-name: Build release ${{ inputs.release_version}} from branch ${{ inputs.checkout_ref }}, Skip tests=${{ inputs.skip_tests }}
 
 env:
   APPLICATION: "bsc-erigon"
@@ -37,6 +37,11 @@ on:
         type: boolean
         default: false
         description: 'publish_latest_tag: when set then docker image with tag :latest will be also published'
+      skip_tests:
+        required: false
+        type: boolean
+        default: false
+        description: 'Skip tests during release build (not recommended)'
 
 jobs:
 
@@ -200,6 +205,7 @@ jobs:
 
 #  test-release:
 #    name: test on ${{ matrix.id }}
+#    if: ${{ ! inputs.skip_tests }}
 #    runs-on: [ self-hosted, Release, "${{ matrix.runner-arch }}" ]
 #    timeout-minutes: 7200  # 5 days
 #    needs: [ build-release ]
@@ -283,6 +289,7 @@ jobs:
   build-debian-pkg:
     name: Debian packages
     needs: [ build-release ]
+    if: always() && contains(needs.build-release.result, 'success') && !contains(needs.test-release.result, 'failure')
     uses: erigontech/erigon/.github/workflows/reusable-release-build-debian-pkg.yml@main
     with:
       application: ${{ needs.build-release.outputs.application }}
@@ -291,9 +298,10 @@ jobs:
 
   publish-docker-image:
     needs: [ build-release ]
+    if: always() && contains(needs.build-release.result, 'success') && !contains(needs.test-release.result, 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    name: Docker image
+    name: Docker image        
 
     steps:
 
@@ -370,6 +378,7 @@ jobs:
 
   publish-release:
     needs: [ build-debian-pkg, publish-docker-image, build-release ]
+    if: always() && contains(needs.build-release.result, 'success') && contains(needs.build-debian-pkg.result, 'success') && contains(needs.publish-docker-image.result, 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     name: Publish release notes
@@ -427,8 +436,8 @@ jobs:
 
   In-case-of-failure:
     name: "In case of failure: remove remote git tag pointing to the new version."
-    needs: [ publish-release, build-release ]
-    if: always() && !contains(needs.build-release.result, 'success')
+    needs: [ publish-release, build-release, test-release ]
+    if: always() && !contains(needs.build-release.result, 'success') && contains(needs.test-release.result, 'failure') && !contains(needs.publish-release.result, 'success') && !contains(needs.build-debian-pkg.result, 'success') && !contains(needs.publish-docker-image.result, 'success')
     runs-on: ubuntu-22.04
 
     steps:
