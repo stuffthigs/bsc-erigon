@@ -1256,7 +1256,6 @@ func (p *Parlia) IsServiceTransaction(sender libcommon.Address, syscall consensu
 }
 
 func (p *Parlia) IsSystemTransaction(tx types.Transaction, header *types.Header) (bool, error) {
-	// deploy a contract
 	if tx.GetTo() == nil || !core.IsToSystemContract(*tx.GetTo()) {
 		return false, nil
 	}
