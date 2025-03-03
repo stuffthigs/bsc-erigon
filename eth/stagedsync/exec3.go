@@ -572,7 +572,7 @@ Loop:
 				txTask.Config = cfg.genesis.Config
 			}
 
-			if txTask.TxNum <= txNumInDB && txTask.TxNum > 0 {
+			if txTask.TxNum <= txNumInDB && txTask.TxNum > 0 && !cfg.blockProduction {
 				inputTxNum++
 				skipPostEvaluation = true
 				continue
