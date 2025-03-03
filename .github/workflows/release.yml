@@ -7,7 +7,7 @@ env:
   TEST_TRACKING_TIME_SECONDS: 7200 # 2 hours
   TEST_TOTAL_TIME_SECONDS: 432000   # 5 days
   TEST_CHAIN: "bsc"
-  BUILDER_IMAGE: "golang:1.22-bookworm"
+  BUILDER_IMAGE: "golang:1.23-bookworm"
   DOCKER_BASE_IMAGE: "debian:12.8-slim"
   APP_REPO: "node-real/bsc-erigon"
   PACKAGE: "github.com/erigontech/erigon"
