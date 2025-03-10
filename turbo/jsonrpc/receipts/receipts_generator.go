@@ -187,3 +187,40 @@ func (g *Generator) GetReceipts(ctx context.Context, cfg *chain.Config, tx kv.Te
 	g.addToCacheReceipts(block.HeaderNoCopy(), receipts)
 	return receipts, nil
 }
+
+func (g *Generator) GetReceiptsGasUsed(tx kv.TemporalTx, block *types.Block) (types.Receipts, error) {
+	if block == nil || len(block.Transactions()) == 0 {
+		return types.Receipts{}, nil
+	}
+
+	startTxNum, err := rawdbv3.TxNums.Min(tx, block.NumberU64())
+	if err != nil {
+		return nil, fmt.Errorf("get min tx num: %w", err)
+	}
+
+	txCount := len(block.Transactions())
+	receipts := make(types.Receipts, txCount)
+
+	prevCumGasUsed, _, _, err := rawtemporaldb.ReceiptAsOf(tx, startTxNum-1)
+	if err != nil {
+		return nil, fmt.Errorf("get base receipt: %w", err)
+	}
+
+	currentTxNum := startTxNum
+	for i := 0; i < txCount; i++ {
+		receipt := &types.Receipt{}
+
+		cumGasUsed, _, _, err := rawtemporaldb.ReceiptAsOf(tx, currentTxNum)
+		if err != nil {
+			return nil, fmt.Errorf("get receipt for tx %d: %w", currentTxNum, err)
+		}
+
+		receipt.GasUsed = cumGasUsed - prevCumGasUsed
+		receipts[i] = receipt
+
+		prevCumGasUsed = cumGasUsed
+		currentTxNum++
+	}
+
+	return receipts, nil
+}
