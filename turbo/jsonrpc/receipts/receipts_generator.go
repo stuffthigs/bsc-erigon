@@ -198,14 +198,12 @@ func (g *Generator) GetReceiptsGasUsed(tx kv.TemporalTx, block *types.Block) (ty
 		return nil, fmt.Errorf("get min tx num: %w", err)
 	}
 
-	txCount := len(block.Transactions())
-	receipts := make(types.Receipts, txCount)
+	receipts := make(types.Receipts, len(block.Transactions()))
 
 	var prevCumGasUsed uint64
-	currentTxNum := startTxNum + 1
-	for i := 0; i < txCount; i++ {
+	currentTxNum := startTxNum + 2
+	for i := range block.Transactions() {
 		receipt := &types.Receipt{}
-
 		cumGasUsed, _, _, err := rawtemporaldb.ReceiptAsOf(tx, currentTxNum)
 		if err != nil {
 			return nil, fmt.Errorf("get receipt for tx %d: %w", currentTxNum, err)
