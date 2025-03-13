@@ -20,7 +20,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"github.com/erigontech/erigon-lib/log/v3"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -91,9 +90,6 @@ func (p Preverified) Typed(types []snaptype.Type) Preverified {
 	var bestVersions btree.Map[string, PreverifiedItem]
 
 	for _, p := range p {
-		if strings.Contains(p.Name, "blocksidecars") {
-			log.Info("Typed blockIndex", "p.Name", p.Name, "p.Hash", p.Hash)
-		}
 		if strings.HasPrefix(p.Name, "salt") && strings.HasSuffix(p.Name, "txt") {
 			bestVersions.Set(p.Name, p)
 			continue
