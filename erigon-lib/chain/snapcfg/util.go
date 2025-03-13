@@ -134,6 +134,10 @@ func (p Preverified) Typed(types []snaptype.Type) Preverified {
 			typeName = "transactions"
 		}
 
+		if strings.Contains(name, "blocksidecars") {
+			typeName = "bscblobsidecars"
+		}
+
 		for _, typ := range types {
 			if typeName == typ.Name() {
 				preferredVersion = typ.Versions().Current
