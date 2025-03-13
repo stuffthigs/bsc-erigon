@@ -92,7 +92,7 @@ func (p Preverified) Typed(types []snaptype.Type) Preverified {
 
 	for _, p := range p {
 		if strings.Contains(p.Name, "blocksidecars") {
-			log.Info("Typed blockIndex", p.Name)
+			log.Info("Typed blockIndex", "p.Name", p.Name, "p.Hash", p.Hash)
 		}
 		if strings.HasPrefix(p.Name, "salt") && strings.HasSuffix(p.Name, "txt") {
 			bestVersions.Set(p.Name, p)
