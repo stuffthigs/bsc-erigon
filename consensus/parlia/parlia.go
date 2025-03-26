@@ -946,7 +946,7 @@ func (p *Parlia) splitTxs(txs types.Transactions, header *types.Header) (userTxs
 // consensus rules that happen at finalization (e.g. block rewards).
 func (p *Parlia) Finalize(_ *chain.Config, header *types.Header, state *state.IntraBlockState,
 	txs types.Transactions, _ []*types.Header, receipts types.Receipts, withdrawals []*types.Withdrawal,
-	chain consensus.ChainReader, syscall consensus.SystemCall, systemTxCall consensus.SystemTxCall, txIndex int,
+	chain consensus.ChainReader, syscall consensus.SystemCall, skipReceiptsEval bool, systemTxCall consensus.SystemTxCall, txIndex int,
 	logger log.Logger) (types.Transactions, types.Receipts, types.FlatRequests, error) {
 	return p.finalize(header, state, txs, receipts, chain, false, systemTxCall, txIndex, logger)
 }
