@@ -268,7 +268,7 @@ func (rw *HistoricalTraceWorker) RunTxTask(txTask *state.TxTask) {
 			return ret, true, nil
 		}
 
-		_, _, _, err := rw.execArgs.Engine.Finalize(rw.execArgs.ChainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, rw.chain, syscall, systemCall, txTask.TxIndex, rw.logger)
+		_, _, _, err := rw.execArgs.Engine.Finalize(rw.execArgs.ChainConfig, types.CopyHeader(header), ibs, txTask.Txs, txTask.Uncles, txTask.BlockReceipts, txTask.Withdrawals, rw.chain, syscall, false, systemCall, txTask.TxIndex, rw.logger)
 		if err != nil {
 			log.Error("run system tx err", "block Number", txTask.BlockNum, "txIndex", txTask.TxIndex, "err", err)
 			txTask.Error = err
