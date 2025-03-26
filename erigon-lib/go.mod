@@ -5,12 +5,12 @@ go 1.22.0
 replace (
 	github.com/anacrolix/torrent => github.com/erigontech/torrent v1.54.3-alpha-1
 	github.com/crate-crypto/go-kzg-4844 => github.com/erigontech/go-kzg-4844 v0.0.0-20250130131058-ce13be60bc86
-	github.com/erigontech/erigon-snapshot => github.com/node-real/bsc-erigon-snapshot v1.0.1-0.20250305092028-07418ecfda1f
+	github.com/erigontech/erigon-snapshot => github.com/node-real/bsc-erigon-snapshot v1.0.1-0.20250326065554-5d51122e298c
 	github.com/holiman/bloomfilter/v2 => github.com/AskAlexSharov/bloomfilter/v2 v2.0.9
 )
 
 require (
-	github.com/erigontech/erigon-snapshot v1.3.1-0.20250121111444-6cc4c0c1fb89
+	github.com/erigontech/erigon-snapshot v1.3.1-0.20250317154231-2ce6d6e9e6fc
 	github.com/erigontech/interfaces v0.0.0-20241120074553-214b5fd396ed
 	github.com/erigontech/mdbx-go v0.38.6-0.20250205222432-e4dd01978d7f
 	github.com/erigontech/secp256k1 v1.1.0

@@ -169,7 +169,7 @@ func ExecuteBlockEphemerallyForBSC(
 		syscall := func(contract libcommon.Address, data []byte) ([]byte, error) {
 			return SysCallContract(contract, data, chainConfig, ibs, header, engine, false /* constCall */)
 		}
-		outTxs, outReceipts, _, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), chainReader, syscall, nil, 0, logger)
+		outTxs, outReceipts, _, err := engine.Finalize(chainConfig, header, ibs, block.Transactions(), block.Uncles(), receipts, block.Withdrawals(), chainReader, syscall, false, nil, 0, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -480,7 +480,7 @@ func FinalizeBlockExecution(
 	if isMining {
 		newBlock, newTxs, newReceipt, retRequests, err = engine.FinalizeAndAssemble(cc, header, ibs, txs, uncles, receipts, withdrawals, chainReader, syscall, nil, logger)
 	} else {
-		newTxs, newReceipt, retRequests, err = engine.Finalize(cc, header, ibs, txs, uncles, receipts, withdrawals, chainReader, syscall, nil, 0, logger)
+		newTxs, newReceipt, retRequests, err = engine.Finalize(cc, header, ibs, txs, uncles, receipts, withdrawals, chainReader, syscall, false, nil, 0, logger)
 	}
 	if err != nil {
 		return nil, nil, nil, nil, err

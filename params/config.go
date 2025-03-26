@@ -68,6 +68,7 @@ var (
 	MainnetGenesisHash    = libcommon.HexToHash("0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
 	HoleskyGenesisHash    = libcommon.HexToHash("0xb5f7f912443c940f21fd611f12828d75b534364ed9e95ca4e307729a4661bde4")
 	SepoliaGenesisHash    = libcommon.HexToHash("0x25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9")
+	HoodiGenesisHash      = libcommon.HexToHash("0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b")
 	AmoyGenesisHash       = libcommon.HexToHash("0x7202b2b53c5a0836e773e319d18922cc756dd67432f9a1f65352b61f4406c697")
 	BorMainnetGenesisHash = libcommon.HexToHash("0xa9c28ce2141b56c474f1dc504bee9b01eb1bd7d1a507580d5519d4437a97de1b")
 	BorDevnetGenesisHash  = libcommon.HexToHash("0x5a06b25b0c6530708ea0b98a3409290e39dce6be7f558493aeb6e4b99a172a87")
@@ -94,6 +95,9 @@ var (
 
 	// SepoliaChainConfig contains the chain parameters to run a node on the Sepolia test network.
 	SepoliaChainConfig = readChainSpec("chainspecs/sepolia.json")
+
+	// HoodiChainConfig contains the chain parameters to run a node on the Hoodi test network.
+	HoodiChainConfig = readChainSpec("chainspecs/hoodi.json")
 
 	BSCChainConfig = readChainSpec("chainspecs/bsc.json")
 
@@ -229,6 +233,8 @@ func ChainConfigByChainName(chain string) *chain.Config {
 		return ChapelChainConfig
 	case networkname.Rialto:
 		return RialtoChainConfig
+	case networkname.Hoodi:
+		return HoodiChainConfig
 	case networkname.Amoy:
 		return AmoyChainConfig
 	case networkname.BorMainnet:
@@ -260,6 +266,8 @@ func GenesisHashByChainName(chain string) *libcommon.Hash {
 		return &ChapelGenesisHash
 	case networkname.Rialto:
 		return &RialtoGenesisHash
+	case networkname.Hoodi:
+		return &HoodiGenesisHash
 	case networkname.Amoy:
 		return &AmoyGenesisHash
 	case networkname.BorMainnet:
@@ -291,6 +299,8 @@ func ChainConfigByGenesisHash(genesisHash libcommon.Hash) *chain.Config {
 		return ChapelChainConfig
 	case genesisHash == RialtoGenesisHash:
 		return RialtoChainConfig
+	case genesisHash == HoodiGenesisHash:
+		return HoodiChainConfig
 	case genesisHash == AmoyGenesisHash:
 		return AmoyChainConfig
 	case genesisHash == BorMainnetGenesisHash:
@@ -323,6 +333,7 @@ func isChainIDPoS(chainID *big.Int) bool {
 		MainnetChainConfig.ChainID,
 		HoleskyChainConfig.ChainID,
 		SepoliaChainConfig.ChainID,
+		HoodiChainConfig.ChainID,
 		GnosisChainConfig.ChainID,
 		ChiadoChainConfig.ChainID,
 	}
