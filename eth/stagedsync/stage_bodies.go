@@ -19,9 +19,10 @@ package stagedsync
 import (
 	"context"
 	"fmt"
-	"github.com/erigontech/erigon/core"
 	"runtime"
 	"time"
+
+	"github.com/erigontech/erigon/core"
 
 	"github.com/erigontech/erigon-lib/log/v3"
 
@@ -249,7 +250,7 @@ func BodiesForward(s *StageState, u Unwinder, ctx context.Context, tx kv.RwTx, c
 				metrics.UpdateBlockConsumerBodyDownloadDelay(header.Time, header.Number.Uint64(), logger)
 
 				if cfg.chanConfig.Parlia != nil && cfg.chanConfig.IsCancun(headerNumber, header.Time) {
-					if err = core.IsDataAvailable(cr, header, rawBody, cfg.bd.LatestBlock); err != nil {
+					if err = core.IsDataAvailable(cr, header, rawBody, cfg.bd.LatestBlockTime); err != nil {
 						return false, err
 					}
 				}

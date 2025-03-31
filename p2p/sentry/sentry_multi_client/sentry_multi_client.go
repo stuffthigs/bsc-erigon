@@ -21,11 +21,12 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"github.com/erigontech/erigon/consensus/parlia"
 	"math/rand"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/erigontech/erigon/consensus/parlia"
 
 	"github.com/c2h5oh/datasize"
 	"golang.org/x/sync/semaphore"
@@ -460,8 +461,8 @@ func (cs *MultiClient) newBlock66(ctx context.Context, inreq *proto_sentry.Inbou
 		return fmt.Errorf("singleHeaderAsSegment failed: %w", err)
 	}
 	cs.Bd.AddToPrefetch(request.Block.Header(), request.Block.RawBody())
-	if cs.Bd.LatestBlock < request.Block.NumberU64() {
-		cs.Bd.LatestBlock = request.Block.NumberU64()
+	if cs.Bd.LatestBlockTime < request.Block.Time() {
+		cs.Bd.LatestBlockTime = request.Block.Time()
 	}
 	outreq := proto_sentry.PeerMinBlockRequest{
 		PeerId:   inreq.PeerId,
