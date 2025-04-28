@@ -268,7 +268,6 @@ func ExecV3(ctx context.Context,
 		defer doms.Close()
 	}
 	txNumInDB := doms.TxNum()
-	doms.DiscardCommitment()
 
 	var (
 		inputTxNum               = doms.TxNum()

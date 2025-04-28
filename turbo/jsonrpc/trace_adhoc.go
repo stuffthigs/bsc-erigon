@@ -1571,7 +1571,7 @@ func (api *TraceAPIImpl) doCall(ctx context.Context, dbtx kv.Tx, stateReader sta
 			stateSyncEvents,
 		)
 	} else {
-		ibs.SetTxContext(txIndex, blockNumber)
+		ibs.SetTxContext(txIndex, blockCtx.BlockNumber)
 		txCtx := core.NewEVMTxContext(msg)
 		evm := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vmConfig)
 		gp := new(core.GasPool).AddGas(msg.Gas()).AddBlobGas(msg.BlobGas())

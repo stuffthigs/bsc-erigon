@@ -403,10 +403,6 @@ func (sd *SharedDomains) SaveCommitment(blockNum uint64, rootHash []byte) error 
 	return sd.sdCtx.storeCommitmentState(blockNum, rootHash)
 }
 
-func (sd *SharedDomains) DiscardCommitment() {
-	sd.sdCtx.discard = dbg.DiscardCommitment()
-}
-
 func (sd *SharedDomains) put(domain kv.Domain, key string, val []byte) {
 	// disable mutex - because work on parallel execution postponed after E3 release.
 	//sd.muMaps.Lock()
