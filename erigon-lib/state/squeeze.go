@@ -244,10 +244,10 @@ func (ac *AggregatorRoTx) SqueezeCommitmentFiles() error {
 						return fmt.Errorf("failed to transform commitment value: %w", err)
 					}
 				}
-				if err = writer.AddWord(k); err != nil {
+				if _, err = writer.Write(k); err != nil {
 					return fmt.Errorf("write key word: %w", err)
 				}
-				if err = writer.AddWord(v); err != nil {
+				if _, err = writer.Write(v); err != nil {
 					return fmt.Errorf("write value word: %w", err)
 				}
 
@@ -491,7 +491,7 @@ func (a *Aggregator) RebuildCommitmentFiles(ctx context.Context, rwDb kv.RwDB, t
 
 			domains.SetBlockNum(blockNum)
 			domains.SetTxNum(lastTxnumInShard - 1)
-			domains.sdCtx.SetLimitReadAsOfTxNum(domains.TxNum() + 1) // this helps to read state from correct file during commitment
+			domains.sdCtx.SetLimitReadAsOfTxNum(domains.TxNum()+1, true) // this helps to read state from correct file during commitment
 
 			rebuiltCommit, err = domains.RebuildCommitmentShard(ctx, nextKey, &RebuiltCommitment{
 				StepFrom: shardFrom,
@@ -509,7 +509,9 @@ func (a *Aggregator) RebuildCommitmentFiles(ctx context.Context, rwDb kv.RwDB, t
 			ac.Close()
 			domains.Close()
 
+			a.dirtyFilesLock.Lock()
 			a.recalcVisibleFiles(a.dirtyFilesEndTxNumMinimax())
+			a.dirtyFilesLock.Unlock()
 			if rwTx != nil {
 				rwTx.Rollback()
 				rwTx = nil

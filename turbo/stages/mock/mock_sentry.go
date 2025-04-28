@@ -281,6 +281,7 @@ func MockWithEverything(tb testing.TB, gspec *types.Genesis, key *ecdsa.PrivateK
 	cfg.TxPool.Disable = !withTxPool
 	cfg.Dirs = dirs
 	cfg.AlwaysGenerateChangesets = true
+	cfg.PersistReceipts = 4
 	cfg.ChaosMonkey = false
 	cfg.Snapshot.ChainName = gspec.Config.ChainName
 
@@ -553,7 +554,7 @@ func MockWithEverything(tb testing.TB, gspec *types.Genesis, key *ecdsa.PrivateK
 		snapDownloader, mock.BlockReader, blockRetire, nil, forkValidator, mock.Engine, logger, checkStateRoot)
 	mock.posStagedSync = stagedsync.New(cfg.Sync, pipelineStages, stagedsync.PipelineUnwindOrder, stagedsync.PipelinePruneOrder, logger, stages.ModeApplyingBlocks)
 
-	mock.Eth1ExecutionService = eth1.NewEthereumExecutionModule(mock.BlockReader, mock.DB, mock.posStagedSync, forkValidator, mock.ChainConfig, assembleBlockPOS, nil, mock.Notifications.Accumulator, mock.Notifications.StateChangesConsumer, logger, engine, cfg.Sync, ctx)
+	mock.Eth1ExecutionService = eth1.NewEthereumExecutionModule(mock.BlockReader, mock.DB, mock.posStagedSync, forkValidator, mock.ChainConfig, assembleBlockPOS, nil, mock.Notifications.Accumulator, mock.Notifications.RecentLogs, mock.Notifications.StateChangesConsumer, logger, engine, cfg.Sync, ctx)
 
 	mock.sentriesClient.Hd.StartPoSDownloader(mock.Ctx, sendHeaderRequest, penalize)
 
@@ -633,6 +634,22 @@ func MockWithTxPool(t *testing.T) *MockSentry {
 	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	address := crypto.PubkeyToAddress(key.PublicKey)
 	chainConfig := params.TestChainConfig
+	gspec := &types.Genesis{
+		Config: chainConfig,
+		Alloc: types.GenesisAlloc{
+			address: {Balance: funds},
+		},
+	}
+
+	checkStateRoot := true
+	return MockWithEverything(t, gspec, key, prune.DefaultMode, ethash.NewFaker(), blockBufferSize, true, false, checkStateRoot)
+}
+
+func MockWithTxPoolCancun(t *testing.T) *MockSentry {
+	funds := big.NewInt(1 * params.Ether)
+	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	address := crypto.PubkeyToAddress(key.PublicKey)
+	chainConfig := params.AllProtocolChanges
 	gspec := &types.Genesis{
 		Config: chainConfig,
 		Alloc: types.GenesisAlloc{
