@@ -672,14 +672,26 @@ func checkIfBlockSnapshotsPublishable(snapDir string) error {
 	if sum != maxTo {
 		return fmt.Errorf("sum %d != maxTo %d", sum, maxTo)
 	}
-	if err := doBlockSnapshotsRangeCheck(snapDir, "headers"); err != nil {
+	if err := doBlockSnapshotsRangeCheck(snapDir, ".seg", "headers"); err != nil {
 		return err
 	}
-	if err := doBlockSnapshotsRangeCheck(snapDir, "bodies"); err != nil {
+	if err := doBlockSnapshotsRangeCheck(snapDir, ".seg", "bodies"); err != nil {
 		return err
 	}
-	if err := doBlockSnapshotsRangeCheck(snapDir, "transactions"); err != nil {
+	if err := doBlockSnapshotsRangeCheck(snapDir, ".seg", "transactions"); err != nil {
 		return err
+	}
+	if err := doBlockSnapshotsRangeCheck(snapDir, ".idx", "headers"); err != nil {
+		return err
+	}
+	if err := doBlockSnapshotsRangeCheck(snapDir, ".idx", "bodies"); err != nil {
+		return err
+	}
+	if err := doBlockSnapshotsRangeCheck(snapDir, ".idx", "transactions"); err != nil {
+		return fmt.Errorf("failed to check transactions idx: %w", err)
+	}
+	if err := doBlockSnapshotsRangeCheck(snapDir, ".idx", "transactions-to-block"); err != nil {
+		return fmt.Errorf("failed to check transactions-to-block idx: %w", err)
 	}
 	// Iterate over all fies in snapDir
 	return nil
@@ -822,17 +834,18 @@ func checkIfStateSnapshotsPublishable(dirs datadir.Dirs) error {
 	return nil
 }
 
-func doBlockSnapshotsRangeCheck(snapDir string, snapType string) error {
+func doBlockSnapshotsRangeCheck(snapDir string, suffix string, snapType string) error {
 	type interval struct {
 		from uint64
 		to   uint64
 	}
+
 	intervals := []interval{}
 	if err := filepath.Walk(snapDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if !strings.HasSuffix(info.Name(), ".seg") || !strings.Contains(info.Name(), snapType) {
+		if !strings.HasSuffix(info.Name(), suffix) || !strings.Contains(info.Name(), snapType+".") {
 			return nil
 		}
 		res, _, ok := snaptype.ParseFileName(snapDir, info.Name())
@@ -850,13 +863,13 @@ func doBlockSnapshotsRangeCheck(snapDir string, snapType string) error {
 	// Check that there are no gaps
 	for i := 1; i < len(intervals); i++ {
 		if intervals[i].from != intervals[i-1].to {
-			return fmt.Errorf("gap between %d and %d. snaptype: %s", intervals[i-1].to, intervals[i].from, snapType)
+			return fmt.Errorf("gap between (%d-%d) and (%d-%d). snaptype: %s", intervals[i-1].from, intervals[i-1].to, intervals[i].from, intervals[i].to, snapType)
 		}
 	}
 	// Check that there are no overlaps
 	for i := 1; i < len(intervals); i++ {
 		if intervals[i].from < intervals[i-1].to {
-			return fmt.Errorf("overlap between %d and %d. snaptype: %s", intervals[i-1].to, intervals[i].from, snapType)
+			return fmt.Errorf("overlap between (%d-%d) and (%d-%d). snaptype: %s", intervals[i-1].from, intervals[i-1].to, intervals[i].from, intervals[i].to, snapType)
 		}
 	}
 
@@ -1346,7 +1359,7 @@ func doCompress(cliCtx *cli.Context) error {
 		if _, err = io.ReadFull(r, buf); err != nil {
 			return err
 		}
-		if err := w.AddWord(buf); err != nil {
+		if _, err := w.Write(buf); err != nil {
 			return err
 		}
 		select {
@@ -1406,6 +1419,7 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	}
 
 	//agg.LimitRecentHistoryWithoutFiles(0)
+	blockReader, _ := br.IO()
 
 	var forwardProgress uint64
 	if to == 0 {
@@ -1413,7 +1427,6 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 			forwardProgress, err = stages.GetStageProgress(tx, stages.Senders)
 			return err
 		})
-		blockReader, _ := br.IO()
 		from2, to2, ok := freezeblocks.CanRetire(forwardProgress, blockReader.FrozenBlocks(), coresnaptype.Enums.Headers, nil)
 		if ok {
 			from, to, every = from2, to2, to2-from2
@@ -1426,8 +1439,15 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	if err := br.RetireBlocks(ctx, from, forwardProgress, log.LvlInfo, nil, nil, nil); err != nil {
 		return err
 	}
+	if err := blockReader.Snapshots().RemoveOverlaps(); err != nil {
+		return err
+	}
+	if sn := blockReader.BorSnapshots(); sn != nil {
+		if err := sn.RemoveOverlaps(); err != nil {
+			return err
+		}
+	}
 
-	blockReader, _ := br.IO()
 	deletedBlocks := math.MaxInt // To pass the first iteration
 	allDeletedBlocks := 0
 	for deletedBlocks > 0 { // prune happens by small steps, so need many runs
@@ -1525,7 +1545,7 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 	if err = agg.MergeLoop(ctx); err != nil {
 		return err
 	}
-	if err = agg.BuildMissedIndices(ctx, indexWorkers); err != nil {
+	if err = agg.RemoveOverlapsAfterMerge(ctx); err != nil {
 		return err
 	}
 
