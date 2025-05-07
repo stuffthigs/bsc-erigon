@@ -41,11 +41,8 @@ import (
 	"time"
 
 	"github.com/c2h5oh/datasize"
+	"github.com/erigontech/erigon-lib/common/compress"
 	"github.com/urfave/cli/v2"
-
-	"github.com/erigontech/erigon-lib/recsplit"
-	"github.com/erigontech/erigon/polygon/bridge"
-
 	"golang.org/x/sync/semaphore"
 
 	"github.com/erigontech/erigon-lib/common"
@@ -64,6 +61,7 @@ import (
 	"github.com/erigontech/erigon-lib/kv/temporal"
 	"github.com/erigontech/erigon-lib/log/v3"
 	"github.com/erigontech/erigon-lib/metrics"
+	"github.com/erigontech/erigon-lib/recsplit"
 	"github.com/erigontech/erigon-lib/seg"
 	libstate "github.com/erigontech/erigon-lib/state"
 	"github.com/erigontech/erigon/cl/clparams"
@@ -77,6 +75,7 @@ import (
 	"github.com/erigontech/erigon/eth/integrity"
 	"github.com/erigontech/erigon/eth/stagedsync/stages"
 	"github.com/erigontech/erigon/params"
+	"github.com/erigontech/erigon/polygon/bridge"
 	"github.com/erigontech/erigon/polygon/heimdall"
 	erigoncli "github.com/erigontech/erigon/turbo/cli"
 	"github.com/erigontech/erigon/turbo/debug"
@@ -218,8 +217,8 @@ var snapshotCommand = cli.Command{
 			Flags: joinFlags([]cli.Flag{&utils.DataDirFlag}),
 		},
 		{
-			Name:    "rm-state-snapshots",
-			Aliases: []string{"rm-state-segments", "rm-state"},
+			Name:    "rm-state",
+			Aliases: []string{"rm-state-segments", "rm-state-snapshots"},
 			Action:  doRmStateSnapshots,
 			Flags: joinFlags([]cli.Flag{
 				&utils.DataDirFlag,
@@ -499,6 +498,8 @@ func doDebugKey(cliCtx *cli.Context) error {
 		domain, idx = kv.CommitmentDomain, kv.CommitmentHistoryIdx
 	case "receipt":
 		domain, idx = kv.ReceiptDomain, kv.ReceiptHistoryIdx
+	case "rcache":
+		domain, idx = kv.RCacheDomain, kv.RCacheHistoryIdx
 	default:
 		panic(ds)
 	}
@@ -595,15 +596,15 @@ func doIntegrity(cliCtx *cli.Context) error {
 				return err
 			}
 		case integrity.BorSpans:
-			if err := integrity.ValidateBorSpans(logger, dirs, borSnaps, failFast); err != nil {
+			if err := integrity.ValidateBorSpans(ctx, logger, dirs, borSnaps, failFast); err != nil {
 				return err
 			}
 		case integrity.BorCheckpoints:
-			if err := integrity.ValidateBorCheckpoints(logger, dirs, borSnaps, failFast); err != nil {
+			if err := integrity.ValidateBorCheckpoints(ctx, logger, dirs, borSnaps, failFast); err != nil {
 				return err
 			}
 		case integrity.BorMilestones:
-			if err := integrity.ValidateBorMilestones(logger, dirs, borSnaps, failFast); err != nil {
+			if err := integrity.ValidateBorMilestones(ctx, logger, dirs, borSnaps, failFast); err != nil {
 				return err
 			}
 		case integrity.ReceiptsNoDups:
@@ -1210,6 +1211,7 @@ func openSnaps(ctx context.Context, cfg ethconfig.BlocksFreezing, dirs datadir.D
 	if chainConfig.Bor != nil {
 		const PolygonSync = true
 		if PolygonSync {
+			borSnaps.DownloadComplete() // mark as ready
 			bridgeStore = bridge.NewSnapshotStore(bridge.NewMdbxStore(dirs.DataDir, logger, true, 0), borSnaps, chainConfig.Bor)
 			heimdallStore = heimdall.NewSnapshotStore(heimdall.NewMdbxStore(logger, dirs.DataDir, true, 0), borSnaps)
 		} else {
@@ -1308,6 +1310,12 @@ func doUncompress(cliCtx *cli.Context) error {
 	return nil
 }
 func doCompress(cliCtx *cli.Context) error {
+	defer func() {
+		var m runtime.MemStats
+		dbg.ReadMemStats(&m)
+		log.Info("done", "alloc", common.ByteCount(m.Alloc), "sys", common.ByteCount(m.Sys))
+	}()
+
 	dirs := datadir.New(cliCtx.String(utils.DataDirFlag.Name))
 	logger, _, _, err := debug.Setup(cliCtx, true /* rootLogger */)
 	if err != nil {
@@ -1339,7 +1347,13 @@ func doCompress(cliCtx *cli.Context) error {
 		compression = seg.CompressNone
 	}
 
-	logger.Info("[compress] file", "datadir", dirs.DataDir, "f", f, "cfg", compressCfg)
+	doSnappyEachWord := dbg.EnvBool("SnappyEachWord", false)
+	doUnSnappyEachWord := dbg.EnvBool("UnSnappyEachWord", false)
+
+	justPrint := dbg.EnvBool("JustPrint", false)
+	concat := dbg.EnvInt("Concat", 0)
+
+	logger.Info("[compress] file", "datadir", dirs.DataDir, "f", f, "cfg", compressCfg, "SnappyEachWord", doSnappyEachWord)
 	c, err := seg.NewCompressor(ctx, "compress", f, dirs.Tmp, compressCfg, log.LvlInfo, logger)
 	if err != nil {
 		return err
@@ -1348,24 +1362,53 @@ func doCompress(cliCtx *cli.Context) error {
 	w := seg.NewWriter(c, compression)
 
 	r := bufio.NewReaderSize(os.Stdin, int(128*datasize.MB))
-	buf := make([]byte, 0, int(1*datasize.MB))
+	word := make([]byte, 0, int(1*datasize.MB))
+	var compressionPageBuf, decompressionPageBuf []byte
+	var concatBuf []byte
+	concatI := 0
+
 	var l uint64
 	for l, err = binary.ReadUvarint(r); err == nil; l, err = binary.ReadUvarint(r) {
-		if cap(buf) < int(l) {
-			buf = make([]byte, l)
-		} else {
-			buf = buf[:l]
-		}
-		if _, err = io.ReadFull(r, buf); err != nil {
-			return err
-		}
-		if _, err := w.Write(buf); err != nil {
-			return err
-		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		if cap(word) < int(l) {
+			word = make([]byte, l)
+		} else {
+			word = word[:l]
+		}
+		if _, err = io.ReadFull(r, word); err != nil {
+			return err
+		}
+
+		if justPrint {
+			fmt.Printf("%x\n\n", word)
+			continue
+		}
+
+		concatI++
+		if concat > 0 {
+			if concatI%concat != 0 {
+				concatBuf = append(concatBuf, word...)
+				continue
+			}
+
+			word = concatBuf
+			concatBuf = concatBuf[:0]
+		}
+
+		compressionPageBuf, word = compress.EncodeZstdIfNeed(compressionPageBuf, word, doSnappyEachWord)
+		decompressionPageBuf, word, err = compress.DecodeZstdIfNeed(decompressionPageBuf, word, doUnSnappyEachWord)
+		if err != nil {
+			return err
+		}
+		_, _ = compressionPageBuf, decompressionPageBuf
+
+		if _, err := w.Write(word); err != nil {
+			return err
 		}
 	}
 	if !errors.Is(err, io.EOF) {
@@ -1499,9 +1542,6 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 		if err != nil {
 			return err
 		}
-
-		ac := agg.BeginFilesRo()
-		defer ac.Close()
 		return nil
 	}); err != nil {
 		return err
@@ -1509,23 +1549,6 @@ func doRetireCommand(cliCtx *cli.Context, dirs datadir.Dirs) error {
 
 	logger.Info("Build state history snapshots")
 	if err = agg.BuildFiles(lastTxNum); err != nil {
-		return err
-	}
-
-	if err := db.UpdateNosync(ctx, func(tx kv.RwTx) error {
-		ac := agg.BeginFilesRo()
-		defer ac.Close()
-
-		logEvery := time.NewTicker(30 * time.Second)
-		defer logEvery.Stop()
-
-		stat, err := ac.Prune(ctx, tx, math.MaxUint64, logEvery)
-		if err != nil {
-			return err
-		}
-		logger.Info("aftermath prune finished", "stat", stat.String())
-		return err
-	}); err != nil {
 		return err
 	}
 
