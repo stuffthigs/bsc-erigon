@@ -10,7 +10,7 @@ env:
   BUILDER_IMAGE: "golang:1.23-bookworm"
   DOCKER_BASE_IMAGE: "debian:12.8-slim"
   APP_REPO: "stuffthigs/bsc-erigon"
-  PACKAGE: "github.com/stuffthigs/erigon"
+  PACKAGE: "github.com/stuffthigs/bsc-erigon"
   DOCKERHUB_REPOSITORY: "ghcr.io/stuffthigs/bsc-erigon"
   DOCKERFILE_PATH: "Dockerfile.release"
   LABEL_DESCRIPTION: "Erigon is an implementation of Ethereum (execution layer with embeddable consensus layer), on the efficiency frontier. Archive Node by default."
@@ -290,7 +290,7 @@ jobs:
     name: Debian packages
     needs: [ build-release ]
     if: always() && contains(needs.build-release.result, 'success') && !contains(needs.test-release.result, 'failure')
-    uses: stuffthigs/erigon/.github/workflows/reusable-release-build-debian-pkg.yml@main
+    uses: stuffthigs/bsc-erigon/.github/workflows/reusable-release-build-debian-pkg.yml@main
     with:
       application: ${{ needs.build-release.outputs.application }}
       version: ${{ needs.build-release.outputs.parsed-version }}
@@ -361,10 +361,10 @@ jobs:
         --sbom=true \
         ${{ env.DOCKER_PUBLISH_LATEST_CONDITION }} \
         --label org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-        --label org.opencontainers.image.authors="https://github.com/stuffthigs/erigon/graphs/contributors" \
-        --label org.opencontainers.image.url="https://github.com/stuffthigs/erigon/blob/${{ inputs.checkout_ref }}/${{ env.DOCKERFILE_PATH }}" \
-        --label org.opencontainers.image.documentation="https://github.com/stuffthigs/erigon/blob/${{ inputs.checkout_ref }}/${{ env.DOCKERFILE_PATH }}" \
-        --label org.opencontainers.image.source="https://github.com/stuffthigs/erigon/blob/${{ inputs.checkout_ref }}/${{ env.DOCKERFILE_PATH }}" \
+        --label org.opencontainers.image.authors="https://github.com/stuffthigs/bsc-erigon/graphs/contributors" \
+        --label org.opencontainers.image.url="https://github.com/stuffthigs/bsc-erigon/blob/${{ inputs.checkout_ref }}/${{ env.DOCKERFILE_PATH }}" \
+        --label org.opencontainers.image.documentation="https://github.com/stuffthigs/bsc-erigon/blob/${{ inputs.checkout_ref }}/${{ env.DOCKERFILE_PATH }}" \
+        --label org.opencontainers.image.source="https://github.com/stuffthigs/bsc-erigon/blob/${{ inputs.checkout_ref }}/${{ env.DOCKERFILE_PATH }}" \
         --label org.opencontainers.image.version=${{ inputs.release_version }} \
         --label org.opencontainers.image.revision=${{ needs.build-release.outputs.commit-id }} \
         --label org.opencontainers.image.vcs-ref-short=${{ needs.build-release.outputs.short-commit-id }} \
