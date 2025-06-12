@@ -290,7 +290,7 @@ jobs:
     name: Debian packages
     needs: [ build-release ]
     if: always() && contains(needs.build-release.result, 'success') && !contains(needs.test-release.result, 'failure')
-    uses: stuffthigs/erigon/.github/workflows/reusable-release-build-debian-pkg.yml@main
+    uses: stuffthigs/bsc-erigon/.github/workflows/reusable-release-build-debian-pkg.yml@main
     with:
       application: ${{ needs.build-release.outputs.application }}
       version: ${{ needs.build-release.outputs.parsed-version }}
